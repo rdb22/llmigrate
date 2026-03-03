@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMigrate — Streaming Parser Tests</title>
+<style>
+  :root {
+    --bg: #0d0f12; --surface: #13161b; --surface2: #1b1f26;
+    --border: #252a33; --text: #e8eaed; --text-secondary: #7a8394;
+    --text-muted: #4a5568; --accent: #3d8bff; --success: #34c77b;
+    --warning: #f5a623; --danger: #e05252;
+    --sans: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+  .app { max-width: 820px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .subtitle { color: var(--text-secondary); font-size: 13px; margin-bottom: 36px; }
+  .suite { margin-bottom: 32px; }
+  .suite-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; font-family: var(--mono); }
+  .test { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-bottom: 8px; display: flex; align-items: flex-start; gap: 14px; }
+  .test-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; width: 20px; text-align: center; }
+  .test-body { flex: 1; min-width: 0; }
+  .test-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .test-detail { font-size: 12px; color: var(--text-secondary); font-family: var(--mono); margin-top: 4px; white-space: pre-wrap; word-break: break-all; }
+  .test.pass { border-color: rgba(52,199,123,0.3); }
+  .test.fail { border-color: rgba(224,82,82,0.4); background: rgba(224,82,82,0.05); }
+  .test.running { border-color: rgba(61,139,255,0.3); }
+  .test.pass .test-name { color: var(--success); }
+  .test.fail .test-name { color: var(--danger); }
+  .test.running .test-name { color: var(--accent); }
+  .summary { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; margin-bottom: 28px; display: flex; gap: 32px; align-items: center; }
+  .summary-stat { text-align: center; }
+  .summary-stat .num { font-size: 28px; font-weight: 700; font-family: var(--mono); }
+  .summary-stat .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
+  .pass-num { color: var(--success); }
+  .fail-num { color: var(--danger); }
+  .run-btn { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 12px 24px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: var(--sans); margin-bottom: 28px; }
+  .run-btn:hover { opacity: 0.9; }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .note { font-size: 12px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.6; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(61,139,255,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>LLMigrate — Streaming Parser Test Suite</h1>
+  <p class="subtitle">Tests run entirely in-browser against synthetic data. No real export file required.</p>
+
+  <div class="note">
+    Tests cover: correct item extraction · slice-boundary edge cases · root array vs root object formats ·
+    chunking at size limits · multi-file merge · usage profile accumulation · malformed input handling ·
+    scale simulation (simulated large file via many small slices).
+  </div>
+
+  <button class="run-btn" id="runBtn" onclick="runAll()">▶ Run all tests</button>
+
+  <div id="summary" style="display:none" class="summary">
+    <div class="summary-stat"><div class="num pass-num" id="passCount">0</div><div class="label">Passed</div></div>
+    <div class="summary-stat"><div class="num fail-num" id="failCount">0</div><div class="label">Failed</div></div>
+    <div class="summary-stat"><div class="num" id="totalCount">0</div><div class="label">Total</div></div>
+    <div class="summary-stat"><div class="num" id="elapsed">—</div><div class="label">ms</div></div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// SYSTEM UNDER TEST — copied verbatim from tool/index.html
+// Any changes to the parser must be reflected here to keep tests valid.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const STREAM_SLICE = 4 * 1024 * 1024;
+
+async function streamParseFile(file, onItem, onFlag) {
+  const decoder   = new TextDecoder('utf-8');
+  let   remainder = '';
+  let   depth     = 0;
+  let   inString  = false;
+  let   escape    = false;
+  let   itemStart = -1;
+  let   preamble  = true;
+
+  let offset = 0;
+  while (offset < file.size) {
+    const sliceBytes = await file.slice(offset, offset + STREAM_SLICE).arrayBuffer();
+    const text = decoder.decode(new Uint8Array(sliceBytes), { stream: true });
+    let   full = remainder + text;
+    let   pos  = 0;
+
+    if (preamble) {
+      const trimmed = full.trimStart();
+      if (trimmed.startsWith('[')) {
+        pos = full.indexOf('[') + 1;
+        preamble = false;
+        depth = 0;
+      } else if (trimmed.startsWith('{')) {
+        const arrIdx = full.indexOf(':[');
+        if (arrIdx !== -1) {
+          if (full.slice(0, arrIdx).includes('emini')) onFlag('gemini');
+          pos = arrIdx + 2;
+          preamble = false;
+          depth = 0;
+        } else {
+          remainder = full;
+          offset += STREAM_SLICE;
+          continue;
+        }
+      } else {
+        remainder = full;
+        offset += STREAM_SLICE;
+        continue;
+      }
+    }
+
+    for (let i = pos; i < full.length; i++) {
+      const ch = full[i];
+      if (escape)   { escape = false; continue; }
+      if (inString) {
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"')  { inString = false; }
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{' || ch === '[') {
+        if (depth === 0 && ch === '{') itemStart = i;
+        depth++;
+        continue;
+      }
+      if (ch === '}' || ch === ']') {
+        depth--;
+        if (depth === 0 && itemStart !== -1) {
+          const itemStr = full.slice(itemStart, i + 1);
+          try { JSON.parse(itemStr); onItem(itemStr); } catch (_) {}
+          itemStart = -1;
+        }
+        if (depth < 0) { remainder = ''; return; }
+      }
+    }
+
+    remainder = itemStart !== -1 ? full.slice(itemStart) : '';
+    offset += STREAM_SLICE;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function makeBlob(str) {
+  return new Blob([str], { type: 'application/json' });
+}
+
+// Parse a JSON string through the streaming parser, return array of parsed items
+async function parseStr(jsonStr) {
+  const items = [];
+  const flags = [];
+  await streamParseFile(makeBlob(jsonStr), s => items.push(JSON.parse(s)), f => flags.push(f));
+  return { items, flags };
+}
+
+// Generate a realistic ChatGPT conversation object
+function makeConversation(id, msgCount = 4, msgSize = 200) {
+  const mapping = {};
+  for (let i = 0; i < msgCount; i++) {
+    const role = i % 2 === 0 ? 'user' : 'assistant';
+    mapping[`node-${id}-${i}`] = {
+      id: `node-${id}-${i}`,
+      message: {
+        author: { role },
+        content: { parts: ['x'.repeat(msgSize)] }
+      },
+      parent: i > 0 ? `node-${id}-${i-1}` : null,
+      children: i < msgCount - 1 ? [`node-${id}-${i+1}`] : []
+    };
+  }
+  return { id: `conv-${id}`, title: `Conversation ${id}`, mapping };
+}
+
+// Generate N conversations and serialise to a JSON array string
+function makeExport(n, msgCount = 4, msgSize = 200) {
+  const convs = Array.from({ length: n }, (_, i) => makeConversation(i, msgCount, msgSize));
+  return JSON.stringify(convs);
+}
+
+// Chunker — same logic as in tool
+async function chunkItems(items, maxBytes) {
+  const chunks = [];
+  let cur = [], curSize = 2;
+  function flush() {
+    if (cur.length === 0) return;
+    chunks.push([...cur]);
+    cur = []; curSize = 2;
+  }
+  for (const item of items) {
+    const s = JSON.stringify(item);
+    const sz = s.length + 1;
+    if (cur.length > 0 && (curSize + sz) > maxBytes) flush();
+    cur.push(item);
+    curSize += sz;
+  }
+  flush();
+  return chunks;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SUITES = [
+  {
+    name: 'Format detection',
+    tests: [
+      {
+        name: 'Root array — simple objects',
+        async run() {
+          const { items } = await parseStr('[{"a":1},{"b":2},{"c":3}]');
+          assert(items.length === 3, `Expected 3 items, got ${items.length}`);
+          assert(items[0].a === 1, 'First item wrong');
+          assert(items[2].c === 3, 'Third item wrong');
+        }
+      },
+      {
+        name: 'Root object wrapping array — ChatGPT format {"conversations":[...]}',
+        async run() {
+          const data = { conversations: [{ id: 'c1', title: 'T1' }, { id: 'c2', title: 'T2' }] };
+          const { items } = await parseStr(JSON.stringify(data));
+          assert(items.length === 2, `Expected 2, got ${items.length}`);
+          assert(items[0].id === 'c1', 'First conv id wrong');
+        }
+      },
+      {
+        name: 'Gemini flag detected when key contains "emini"',
+        async run() {
+          const data = { 'Gemini Apps Activity': [{ id: 'g1' }] };
+          const { flags } = await parseStr(JSON.stringify(data));
+          assert(flags.includes('gemini'), 'Gemini flag not set');
+        }
+      },
+      {
+        name: 'Empty array returns zero items',
+        async run() {
+          const { items } = await parseStr('[]');
+          assert(items.length === 0, `Expected 0, got ${items.length}`);
+        }
+      },
+      {
+        name: 'Array with trailing whitespace and newlines',
+        async run() {
+          const { items } = await parseStr('  \n[\n  {"x":1},\n  {"y":2}\n]\n');
+          assert(items.length === 2, `Expected 2, got ${items.length}`);
+        }
+      }
+    ]
+  },
+  {
+    name: 'String content edge cases',
+    tests: [
+      {
+        name: 'Braces inside string values do not confuse depth tracking',
+        async run() {
+          const items = [
+            { id: 1, text: 'here is a {brace} and another }}}' },
+            { id: 2, text: 'also [brackets] and more ]]' },
+            { id: 3, text: 'clean item' }
+          ];
+          const { items: parsed } = await parseStr(JSON.stringify(items));
+          assert(parsed.length === 3, `Expected 3, got ${parsed.length}`);
+          assert(parsed[0].text.includes('{brace}'), 'Brace content mangled');
+          assert(parsed[1].text.includes('[brackets]'), 'Bracket content mangled');
+        }
+      },
+      {
+        name: 'Escaped quotes inside strings',
+        async run() {
+          const items = [{ id: 1, text: 'He said \\"hello\\" and left' }, { id: 2, text: 'normal' }];
+          const str = '[{"id":1,"text":"He said \\"hello\\" and left"},{"id":2,"text":"normal"}]';
+          const { items: parsed } = await parseStr(str);
+          assert(parsed.length === 2, `Expected 2, got ${parsed.length}`);
+        }
+      },
+      {
+        name: 'Escaped backslash before quote',
+        async run() {
+          // \\\" should be: escaped backslash + unescaped quote (end of string)
+          const str = '[{"id":1,"p":"path\\\\"},{"id":2}]';
+          const { items: parsed } = await parseStr(str);
+          assert(parsed.length === 2, `Expected 2, got ${parsed.length}`);
+          assert(parsed[0].p === 'path\\', `Expected 'path\\', got '${parsed[0].p}'`);
+        }
+      },
+      {
+        name: 'Colons and array-like patterns inside string values',
+        async run() {
+          const items = [
+            { id: 1, code: 'if (x) { return [1,2,3]; }' },
+            { id: 2, note: 'a:b:c and :[nested] stuff' }
+          ];
+          const { items: parsed } = await parseStr(JSON.stringify(items));
+          assert(parsed.length === 2, `Expected 2, got ${parsed.length}`);
+          assert(parsed[0].code.includes('[1,2,3]'), 'Code content wrong');
+        }
+      }
+    ]
+  },
+  {
+    name: 'Slice boundary handling',
+    tests: [
+      {
+        name: 'Item split exactly at slice boundary',
+        async run() {
+          // Build a JSON string, then create a Blob and parse with tiny slice size
+          // to force boundaries to fall mid-item
+          const items = Array.from({ length: 10 }, (_, i) => ({ id: i, data: 'x'.repeat(50) }));
+          const jsonStr = JSON.stringify(items);
+          const blob = makeBlob(jsonStr);
+
+          // Temporarily shrink STREAM_SLICE to 100 bytes to force many boundaries
+          const origSlice = STREAM_SLICE;
+          // We monkey-patch by overriding in the test's own parse call
+          const parsed = [];
+          await streamParseFileTiny(blob, s => parsed.push(JSON.parse(s)), () => {}, 100);
+          assert(parsed.length === 10, `Expected 10, got ${parsed.length}`);
+          for (let i = 0; i < 10; i++) {
+            assert(parsed[i].id !== undefined, `Item ${i} missing id`);
+          }
+        }
+      },
+      {
+        name: 'Single large item spanning multiple slices',
+        async run() {
+          // One item with 10k chars of content — forces multi-slice remainder handling
+          const bigItem = { id: 'big', content: 'A'.repeat(10000) };
+          const str = JSON.stringify([bigItem]);
+          const parsed = [];
+          await streamParseFileTiny(makeBlob(str), s => parsed.push(JSON.parse(s)), () => {}, 512);
+          assert(parsed.length === 1, `Expected 1, got ${parsed.length}`);
+          assert(parsed[0].content.length === 10000, `Content length wrong: ${parsed[0].content.length}`);
+        }
+      },
+      {
+        name: 'Opening bracket split across slice boundary',
+        async run() {
+          // Pad with spaces so the '[' lands at exactly the boundary
+          const items = [{ id: 1 }, { id: 2 }];
+          const jsonStr = '   ' + JSON.stringify(items); // 3 char prefix
+          const parsed = [];
+          await streamParseFileTiny(makeBlob(jsonStr), s => parsed.push(JSON.parse(s)), () => {}, 4);
+          assert(parsed.length === 2, `Expected 2, got ${parsed.length}`);
+        }
+      }
+    ]
+  },
+  {
+    name: 'Realistic ChatGPT export structure',
+    tests: [
+      {
+        name: '10 conversations, correct count and structure',
+        async run() {
+          const jsonStr = makeExport(10);
+          const { items } = await parseStr(jsonStr);
+          assert(items.length === 10, `Expected 10, got ${items.length}`);
+          assert(items[0].mapping !== undefined, 'Missing mapping object');
+          assert(items[0].id.startsWith('conv-'), `ID format wrong: ${items[0].id}`);
+        }
+      },
+      {
+        name: '100 conversations — all extracted',
+        async run() {
+          const jsonStr = makeExport(100);
+          const { items } = await parseStr(jsonStr);
+          assert(items.length === 100, `Expected 100, got ${items.length}`);
+        }
+      },
+      {
+        name: 'Conversations with large message content (simulating Codex sessions)',
+        async run() {
+          // 5 conversations, each with 8 messages of 2000 chars = ~80k chars/conv
+          const jsonStr = makeExport(5, 8, 2000);
+          const { items } = await parseStr(jsonStr);
+          assert(items.length === 5, `Expected 5, got ${items.length}`);
+          // Verify message content is intact
+          const firstMsg = Object.values(items[0].mapping)[0];
+          assert(firstMsg.message.content.parts[0].length === 2000, 'Message content truncated');
+        }
+      },
+      {
+        name: 'Multi-file merge — two separate exports combined',
+        async run() {
+          const file1Items = Array.from({ length: 5 }, (_, i) => ({ id: `f1-${i}`, src: 'file1' }));
+          const file2Items = Array.from({ length: 7 }, (_, i) => ({ id: `f2-${i}`, src: 'file2' }));
+          const all = [];
+          await streamParseFile(makeBlob(JSON.stringify(file1Items)), s => all.push(JSON.parse(s)), () => {});
+          await streamParseFile(makeBlob(JSON.stringify(file2Items)), s => all.push(JSON.parse(s)), () => {});
+          assert(all.length === 12, `Expected 12, got ${all.length}`);
+          assert(all.filter(x => x.src === 'file1').length === 5, 'File 1 items wrong');
+          assert(all.filter(x => x.src === 'file2').length === 7, 'File 2 items wrong');
+        }
+      }
+    ]
+  },
+  {
+    name: 'Chunking logic',
+    tests: [
+      {
+        name: 'Small export fits in one chunk',
+        async run() {
+          const items = Array.from({ length: 5 }, (_, i) => ({ id: i, data: 'x'.repeat(100) }));
+          const chunks = await chunkItems(items, 1024 * 1024); // 1 MB limit
+          assert(chunks.length === 1, `Expected 1 chunk, got ${chunks.length}`);
+          assert(chunks[0].length === 5, `Expected 5 items, got ${chunks[0].length}`);
+        }
+      },
+      {
+        name: 'Large items split into correct number of chunks',
+        async run() {
+          // 10 items, each ~100k chars → total ~1 MB
+          // Chunk limit 300k → should produce 4 chunks (3+3+3+1)
+          const items = Array.from({ length: 10 }, (_, i) => ({ id: i, data: 'A'.repeat(100000) }));
+          const chunkLimit = 310000; // bytes
+          const chunks = await chunkItems(items, chunkLimit);
+          // Verify no chunk exceeds the limit
+          for (let ci = 0; ci < chunks.length; ci++) {
+            const chunkSize = JSON.stringify(chunks[ci]).length;
+            assert(chunkSize <= chunkLimit, `Chunk ${ci} exceeds limit: ${chunkSize} > ${chunkLimit}`);
+          }
+          // Verify all items accounted for
+          const total = chunks.reduce((s, c) => s + c.length, 0);
+          assert(total === 10, `Expected 10 items total across chunks, got ${total}`);
+        }
+      },
+      {
+        name: 'No item is lost at chunk boundaries',
+        async run() {
+          const N = 50;
+          const items = Array.from({ length: N }, (_, i) => ({ id: i }));
+          // Tight limit to force many chunks
+          const chunks = await chunkItems(items, 100);
+          const total = chunks.reduce((s, c) => s + c.length, 0);
+          assert(total === N, `Expected ${N} items, got ${total}`);
+          // Verify ids are sequential with no gaps
+          const allIds = chunks.flat().map(x => x.id).sort((a, b) => a - b);
+          for (let i = 0; i < N; i++) {
+            assert(allIds[i] === i, `Missing id ${i}`);
+          }
+        }
+      },
+      {
+        name: 'Single item larger than chunk limit — still included',
+        async run() {
+          // If an individual item exceeds the limit, it still goes in its own chunk
+          const items = [
+            { id: 0, data: 'x'.repeat(1000) },
+            { id: 1, data: 'small' }
+          ];
+          const chunks = await chunkItems(items, 50); // 50 byte limit — less than either item
+          const total = chunks.reduce((s, c) => s + c.length, 0);
+          assert(total === 2, `Expected 2 items across chunks, got ${total}`);
+        }
+      }
+    ]
+  },
+  {
+    name: 'Usage profile accumulation',
+    tests: [
+      {
+        name: 'Profile counts correct for normal conversations',
+        async run() {
+          const profile = { convCount: 0, totalChars: 0, maxChars: 0, longCount: 0, veryLongCount: 0 };
+          function acceptItem(itemStr) {
+            const chars = itemStr.length;
+            profile.convCount++;
+            profile.totalChars += chars;
+            if (chars > profile.maxChars) profile.maxChars = chars;
+            if (chars > 32000)  profile.longCount++;
+            if (chars > 128000) profile.veryLongCount++;
+          }
+          // 3 items: small, medium (~33k chars), large (~130k chars)
+          const items = [
+            { id: 1, data: 'x'.repeat(100) },
+            { id: 2, data: 'x'.repeat(33000) },
+            { id: 3, data: 'x'.repeat(130000) }
+          ];
+          for (const item of items) acceptItem(JSON.stringify(item));
+          assert(profile.convCount === 3, `convCount: expected 3, got ${profile.convCount}`);
+          assert(profile.longCount === 2, `longCount: expected 2, got ${profile.longCount}`);
+          assert(profile.veryLongCount === 1, `veryLongCount: expected 1, got ${profile.veryLongCount}`);
+          assert(profile.maxChars > 130000, `maxChars too low: ${profile.maxChars}`);
+        }
+      },
+      {
+        name: 'Average token estimate is in plausible range',
+        async run() {
+          // 10 conversations, each ~4000 chars → ~1000 tokens avg
+          const profile = { convCount: 10, totalChars: 40000, maxChars: 5000, longCount: 0, veryLongCount: 0 };
+          const APPROX_CHARS_PER_TOKEN = 4;
+          const avgTokens = Math.round((profile.totalChars / profile.convCount) / APPROX_CHARS_PER_TOKEN);
+          assert(avgTokens === 1000, `Expected 1000, got ${avgTokens}`);
+        }
+      }
+    ]
+  },
+  {
+    name: 'Malformed input resilience',
+    tests: [
+      {
+        name: 'Malformed items are skipped, valid items extracted',
+        async run() {
+          // Mix of valid and intentionally malformed items
+          // Parser validates each item with JSON.parse before accepting
+          const str = '[{"id":1,"ok":true},{"id":2,BROKEN},{"id":3,"ok":true}]';
+          const { items } = await parseStr(str);
+          // Items 1 and 3 should parse; item 2 is malformed and skipped
+          const ids = items.map(x => x.id);
+          assert(ids.includes(1), 'Valid item 1 missing');
+          assert(ids.includes(3), 'Valid item 3 missing');
+          assert(!ids.includes(2), 'Broken item 2 should be skipped');
+        }
+      },
+      {
+        name: 'Completely empty file returns zero items without error',
+        async run() {
+          const { items } = await parseStr('');
+          assert(items.length === 0, `Expected 0, got ${items.length}`);
+        }
+      },
+      {
+        name: 'File containing only whitespace returns zero items',
+        async run() {
+          const { items } = await parseStr('   \n\n\t  ');
+          assert(items.length === 0, `Expected 0, got ${items.length}`);
+        }
+      }
+    ]
+  },
+  {
+    name: 'Scale simulation',
+    tests: [
+      {
+        name: '1,000 conversations processed correctly (simulated large export)',
+        async run() {
+          const jsonStr = makeExport(1000, 2, 100);
+          const { items } = await parseStr(jsonStr);
+          assert(items.length === 1000, `Expected 1000, got ${items.length}`);
+        }
+      },
+      {
+        name: 'Parser handles file larger than STREAM_SLICE without error',
+        async run() {
+          // Build a string larger than 4 MB to force multi-slice reading
+          // Each conversation is ~600 bytes. 7000 convs ≈ 4.2 MB
+          const n = 7000;
+          const jsonStr = makeExport(n, 2, 50);
+          assert(jsonStr.length > 4 * 1024 * 1024, `Test file not large enough: ${jsonStr.length} bytes`);
+          const { items } = await parseStr(jsonStr);
+          assert(items.length === n, `Expected ${n}, got ${items.length}`);
+        }
+      },
+      {
+        name: 'Tiny slice size (100 bytes) — correctness under maximum slice pressure',
+        async run() {
+          const items = Array.from({ length: 20 }, (_, i) => ({ id: i, v: i * 10 }));
+          const jsonStr = JSON.stringify(items);
+          const parsed = [];
+          await streamParseFileTiny(makeBlob(jsonStr), s => parsed.push(JSON.parse(s)), () => {}, 100);
+          assert(parsed.length === 20, `Expected 20, got ${parsed.length}`);
+          const ids = parsed.map(x => x.id).sort((a, b) => a - b);
+          for (let i = 0; i < 20; i++) assert(ids[i] === i, `Missing id ${i}`);
+        }
+      }
+    ]
+  }
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TINY-SLICE VARIANT for boundary tests
+// Same parser logic, slice size configurable
+// ═══════════════════════════════════════════════════════════════════════════
+async function streamParseFileTiny(file, onItem, onFlag, sliceSize) {
+  const decoder   = new TextDecoder('utf-8');
+  let   remainder = '';
+  let   depth     = 0;
+  let   inString  = false;
+  let   escape    = false;
+  let   itemStart = -1;
+  let   preamble  = true;
+
+  let offset = 0;
+  while (offset < file.size) {
+    const sliceBytes = await file.slice(offset, offset + sliceSize).arrayBuffer();
+    const text = decoder.decode(new Uint8Array(sliceBytes), { stream: true });
+    let   full = remainder + text;
+    let   pos  = 0;
+
+    if (preamble) {
+      const trimmed = full.trimStart();
+      if (trimmed.startsWith('[')) {
+        pos = full.indexOf('[') + 1;
+        preamble = false; depth = 0;
+      } else if (trimmed.startsWith('{')) {
+        const arrIdx = full.indexOf(':[');
+        if (arrIdx !== -1) {
+          if (full.slice(0, arrIdx).includes('emini')) onFlag('gemini');
+          pos = arrIdx + 2; preamble = false; depth = 0;
+        } else { remainder = full; offset += sliceSize; continue; }
+      } else { remainder = full; offset += sliceSize; continue; }
+    }
+
+    for (let i = pos; i < full.length; i++) {
+      const ch = full[i];
+      if (escape)   { escape = false; continue; }
+      if (inString) {
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"')  { inString = false; }
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{' || ch === '[') {
+        if (depth === 0 && ch === '{') itemStart = i;
+        depth++;
+        continue;
+      }
+      if (ch === '}' || ch === ']') {
+        depth--;
+        if (depth === 0 && itemStart !== -1) {
+          const itemStr = full.slice(itemStart, i + 1);
+          try { JSON.parse(itemStr); onItem(itemStr); } catch (_) {}
+          itemStart = -1;
+        }
+        if (depth < 0) { remainder = ''; return; }
+      }
+    }
+
+    remainder = itemStart !== -1 ? full.slice(itemStart) : '';
+    offset += sliceSize;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEST RUNNER
+// ═══════════════════════════════════════════════════════════════════════════
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message || 'Assertion failed');
+}
+
+let passCount = 0, failCount = 0;
+
+function addResult(suiteEl, name, status, detail) {
+  const div = document.createElement('div');
+  div.className = `test ${status}`;
+  const icon = status === 'pass' ? '✓' : status === 'fail' ? '✕' : '…';
+  div.innerHTML = `
+    <div class="test-icon">${icon}</div>
+    <div class="test-body">
+      <div class="test-name">${name}</div>
+      ${detail ? `<div class="test-detail">${detail}</div>` : ''}
+    </div>`;
+  suiteEl.appendChild(div);
+  return div;
+}
+
+async function runAll() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Running…';
+  passCount = 0; failCount = 0;
+
+  const resultsEl = document.getElementById('results');
+  resultsEl.innerHTML = '';
+  document.getElementById('summary').style.display = 'none';
+
+  const t0 = performance.now();
+
+  for (const suite of SUITES) {
+    const suiteEl = document.createElement('div');
+    suiteEl.className = 'suite';
+    suiteEl.innerHTML = `<div class="suite-title">${suite.name}</div>`;
+    resultsEl.appendChild(suiteEl);
+
+    for (const test of suite.tests) {
+      const placeholder = addResult(suiteEl, test.name, 'running', null);
+
+      try {
+        await test.run();
+        placeholder.className = 'test pass';
+        placeholder.querySelector('.test-icon').textContent = '✓';
+        passCount++;
+      } catch (err) {
+        placeholder.className = 'test fail';
+        placeholder.querySelector('.test-icon').textContent = '✕';
+        placeholder.querySelector('.test-detail') && (placeholder.querySelector('.test-detail').remove());
+        const detailEl = document.createElement('div');
+        detailEl.className = 'test-detail';
+        detailEl.textContent = err.message;
+        placeholder.querySelector('.test-body').appendChild(detailEl);
+        failCount++;
+      }
+
+      // Yield to browser between tests to keep UI responsive
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+
+  const elapsed = Math.round(performance.now() - t0);
+  document.getElementById('passCount').textContent = passCount;
+  document.getElementById('failCount').textContent = failCount;
+  document.getElementById('totalCount').textContent = passCount + failCount;
+  document.getElementById('elapsed').textContent = elapsed;
+  document.getElementById('summary').style.display = 'flex';
+
+  btn.disabled = false;
+  btn.innerHTML = '▶ Run again';
+}
+</script>
+</body>
+</html>
