@@ -1,0 +1,2089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMigrate — AI Context Migration Tool</title>
+<meta name="description" content="Migrate your AI assistant context from ChatGPT or Gemini to Claude or a local LLM. Free, private, browser-based.">
+<link rel="canonical" href="https://llmigrate.com/tool/">
+<style>
+  /* No external font requests — fully offline.
+     Inter is used by ~40% of top web properties and ships with macOS 13+, most Linux desktops,
+     and is installed by many Windows users. The fallback chain covers all other cases cleanly. */
+
+  :root {
+    --bg: #0d0f12;
+    --surface: #13161b;
+    --surface2: #1b1f26;
+    --border: #252a33;
+    --border-active: #3d8bff;
+    --text: #e8eaed;
+    --text-secondary: #7a8394;
+    --text-muted: #4a5568;
+    --accent: #3d8bff;
+    --accent-dim: rgba(61,139,255,0.12);
+    --accent-glow: rgba(61,139,255,0.08);
+    --success: #34c77b;
+    --success-dim: rgba(52,199,123,0.12);
+    --warning: #f5a623;
+    --warning-dim: rgba(245,166,35,0.12);
+    --danger: #e05252;
+    --mono: 'Menlo', 'Cascadia Code', 'Consolas', 'Liberation Mono', monospace;
+    --sans: 'Inter', 'Inter Display', -apple-system, 'Segoe UI', system-ui, sans-serif;
+    --radius: 8px;
+    --transition: 200ms ease;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* Layout */
+  .app {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* Header */
+  .header {
+    margin-bottom: 48px;
+  }
+  .header-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .header p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    max-width: 520px;
+  }
+
+  /* Privacy banner */
+  .privacy-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--success-dim);
+    border: 1px solid rgba(52,199,123,0.25);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 40px;
+  }
+  .privacy-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: var(--success);
+  }
+  .privacy-banner p {
+    font-size: 12.5px;
+    color: var(--success);
+    line-height: 1.5;
+  }
+  .privacy-disclaimer {
+    font-size: 12px;
+    color: rgba(52,199,123,0.65);
+    margin-top: 6px;
+  }
+  .privacy-banner strong { font-weight: 600; }
+
+  /* Progress track */
+  .progress-track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 36px;
+  }
+  .step-dot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .step-dot.active { color: var(--accent); }
+  .step-dot.done { color: var(--success); }
+  .dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+    transition: var(--transition);
+  }
+  .step-dot.active .dot {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .step-dot.done .dot {
+    border-color: var(--success);
+    background: var(--success-dim);
+    color: var(--success);
+  }
+  .track-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    margin: 0 8px;
+    min-width: 16px;
+  }
+  .track-line.done { background: var(--success); opacity: 0.4; }
+
+  /* Card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 20px;
+  }
+
+  /* Platform selector */
+  .platform-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .platform-btn {
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    text-align: left;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .platform-btn:hover {
+    border-color: #333b47;
+    background: #1f242d;
+  }
+  .platform-btn.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .platform-btn.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .platform-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .platform-info { flex: 1; min-width: 0; }
+  .platform-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .platform-sub {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+  }
+  .platform-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--border);
+    color: var(--text-muted);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .platform-badge.soon { color: var(--warning); background: var(--warning-dim); }
+
+  /* Section title with step number */
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .step-title {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .step-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+
+  /* Prompt box */
+  .prompt-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: #c8d0db;
+    white-space: pre-wrap;
+    word-break: break-word;
+    position: relative;
+  }
+  .copy-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-family: var(--sans);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--success); color: var(--success); }
+
+  /* File drop zone */
+  .dropzone {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 36px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    background: var(--surface2);
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+  .dropzone-icon {
+    font-size: 28px;
+    margin-bottom: 10px;
+    display: block;
+  }
+  .dropzone p { color: var(--text-secondary); font-size: 13px; }
+  .dropzone strong { color: var(--text); font-size: 14px; display: block; margin-bottom: 4px; }
+  .dropzone input { display: none; }
+
+  /* File info */
+  .file-info {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .file-icon { font-size: 20px; }
+  .file-details { flex: 1; min-width: 0; }
+  .file-name { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-size { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
+  .file-clear { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 4px; }
+  .file-clear:hover { color: var(--danger); }
+
+  /* Chunk list */
+  .chunk-list { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .chunk-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .chunk-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 32px;
+  }
+  .chunk-details { flex: 1; }
+  .chunk-name { font-size: 13px; font-weight: 500; }
+  .chunk-meta { font-size: 11.5px; color: var(--text-secondary); margin-top: 1px; }
+  .dl-btn {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 5px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 14px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: var(--transition);
+  }
+  .dl-btn:hover { background: rgba(61,139,255,0.2); }
+  .dl-all-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: var(--transition);
+    margin-top: 12px;
+  }
+  .dl-all-btn:hover { opacity: 0.9; }
+
+  /* Import instructions */
+  .instruction-block {
+    margin-bottom: 20px;
+  }
+  .instruction-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .instruction-content {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+  .instruction-content ol, .instruction-content ul {
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .instruction-content li { color: var(--text-secondary); }
+  .instruction-content strong { color: var(--text); font-weight: 500; }
+  .instruction-content code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: #a8d8ff;
+  }
+
+  /* Info callout */
+  .callout {
+    display: flex;
+    gap: 12px;
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .callout.info { background: var(--accent-dim); border: 1px solid rgba(61,139,255,0.2); color: #8ab8ff; }
+  .callout.warning { background: var(--warning-dim); border: 1px solid rgba(245,166,35,0.2); color: var(--warning); }
+  .callout-icon { flex-shrink: 0; }
+
+  /* Capability table */
+  .cap-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    font-family: var(--mono);
+  }
+  .cap-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 500;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .cap-table td {
+    padding: 8px 12px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(37,42,51,0.5);
+  }
+  .cap-table td:first-child { color: var(--text); }
+  .cap-val { color: var(--success); font-weight: 500; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    border: none;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: #333b47; color: var(--text); }
+  .btn-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Status messages */
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    margin-top: 12px;
+  }
+  .status.processing { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(61,139,255,0.2); }
+  .status.success { background: var(--success-dim); color: var(--success); border: 1px solid rgba(52,199,123,0.2); }
+  .status.error { background: rgba(224,82,82,0.1); color: var(--danger); border: 1px solid rgba(224,82,82,0.2); }
+
+  /* Spinner */
+  .spin {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(61,139,255,0.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Sections */
+  .section { display: none; }
+  .section.active { display: block; animation: fadeUp 0.25s ease; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Tier selector */
+  .tier-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .tier-btn {
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: var(--transition);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .tier-btn:hover { border-color: #333b47; color: var(--text); }
+  .tier-btn.selected { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+
+  /* Summary row */
+  .summary-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+  }
+  .summary-pill .arrow { color: var(--accent); }
+
+  /* Responsive */
+  @media (max-width: 480px) {
+    /* Layout */
+    .app { padding: 20px 16px 60px; }
+
+    /* Platform / tier grids */
+    .platform-grid { grid-template-columns: 1fr; }
+    .tier-grid { grid-template-columns: 1fr 1fr; }
+
+    /* Progress tracker */
+    .progress-track { gap: 0; }
+    .step-dot span { display: none; }
+
+    /* Privacy banner: stack icon and text vertically */
+    .privacy-banner { flex-direction: column; gap: 8px; }
+
+    /* Prompt box: larger text for readability, copy button below content */
+    .prompt-box {
+      font-size: 12px;
+      padding: 14px 14px 52px;
+    }
+    .copy-btn {
+      top: auto;
+      bottom: 10px;
+      right: 10px;
+      padding: 8px 16px;
+      font-size: 12px;
+      min-height: 40px;   /* 40px minimum touch target */
+    }
+
+    /* Navigation buttons: full-width stack on narrow screens */
+    .btn-row {
+      flex-direction: column-reverse;
+      gap: 8px;
+    }
+    .btn-row .btn { width: 100%; justify-content: center; min-height: 44px; }
+
+    /* Dropzone: mobile has no drag-drop, reduce padding and update label via attr */
+    .dropzone { padding: 24px 16px; }
+    .dropzone-mobile-hint { display: block; }
+    .dropzone-desktop-hint { display: none; }
+  }
+
+  /* Desktop: hide the mobile-only hint */
+  @media (min-width: 481px) {
+    .dropzone-mobile-hint { display: none; }
+    .dropzone-desktop-hint { display: block; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Site nav -->
+  <div style="border-bottom:1px solid var(--border);margin-bottom:32px;padding-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
+    <a href="/" style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text-secondary);text-decoration:none;">
+      ← <span style="color:var(--accent);">ll</span><span style="color:var(--text-secondary);">migrate</span><span style="color:var(--accent);">.</span><span style="color:var(--text-secondary);">com</span>
+    </a>
+    <span style="font-family:var(--mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;">Context Migration Tool</span>
+  </div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-label">Context Migration Tool</div>
+    <h1>AI Context Migrator</h1>
+    <p>Move your assistant context, memory, and preferences from one platform to another — entirely in your browser.</p>
+    <p style="margin-top:6px;font-size:12px;opacity:0.65;">Platform specs verified March 2026 · ChatGPT = GPT-5.2 · Gemini = Gemini 3 (AI Pro/Ultra) · Claude = Sonnet 4.6 / Opus 4.6</p>
+  </div>
+
+  <!-- Privacy banner -->
+  <div class="privacy-banner">
+    <svg class="privacy-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 1L2 3.5v4C2 10.9 4.6 13.9 8 15c3.4-1.1 6-4.1 6-7.5v-4L8 1z" stroke="currentColor" stroke-width="1.3" fill="none"/>
+      <path d="M5.5 8l2 2 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <p><strong>100% local processing.</strong> No files are uploaded to any server. All file handling — reading, splitting, and downloading — happens entirely within your browser. This tool has no backend, no analytics, and no network requests. Your conversation data never leaves your device.</p>
+    <p class="privacy-disclaimer">This tool does not store or transmit your data. Always review AI-generated summaries for sensitive information before pasting them into a new platform. Use at your own risk.</p>
+  </div>
+
+  <!-- Progress tracker -->
+  <div class="progress-track" id="progressTrack">
+    <div class="step-dot active" id="pd-1"><div class="dot">1</div><span>Platforms</span></div>
+    <div class="track-line" id="tl-1"></div>
+    <div class="step-dot" id="pd-2"><div class="dot">2</div><span>Request export</span></div>
+    <div class="track-line" id="tl-2"></div>
+    <div class="step-dot" id="pd-3"><div class="dot">3</div><span>Extract</span></div>
+    <div class="track-line" id="tl-3"></div>
+    <div class="step-dot" id="pd-4"><div class="dot">4</div><span>Files</span></div>
+    <div class="track-line" id="tl-4"></div>
+    <div class="step-dot" id="pd-5"><div class="dot">5</div><span>Import</span></div>
+    <div class="track-line" id="tl-5"></div>
+    <div class="step-dot" id="pd-6"><div class="dot">✓</div><span>Done</span></div>
+  </div>
+
+  <!-- STEP 1: Platform selection -->
+  <div class="section active" id="step1">
+    <div class="step-header">
+      <div class="step-num">1</div>
+      <div>
+        <div class="step-title">Select platforms</div>
+        <div class="step-subtitle">Choose where you're migrating from and to</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Source — Migrating from</div>
+      <div class="platform-grid" id="sourcePlatforms">
+        <button class="platform-btn" data-platform="chatgpt" onclick="selectPlatform('source','chatgpt')">
+          <div class="platform-icon" style="background:#10a37f1a">🤖</div>
+          <div class="platform-info">
+            <div class="platform-name">ChatGPT</div>
+            <div class="platform-sub">OpenAI</div>
+          </div>
+        </button>
+        <button class="platform-btn" data-platform="gemini" onclick="selectPlatform('source','gemini')">
+          <div class="platform-icon" style="background:#4285f41a">✦</div>
+          <div class="platform-info">
+            <div class="platform-name">Gemini</div>
+            <div class="platform-sub">Google</div>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Source tier</div>
+      <div class="tier-grid" id="sourceTiers"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Destination — Migrating to</div>
+      <div class="platform-grid" id="destPlatforms">
+        <button class="platform-btn" data-platform="claude" onclick="selectPlatform('dest','claude')">
+          <div class="platform-icon" style="background:#d972441a">◉</div>
+          <div class="platform-info">
+            <div class="platform-name">Claude</div>
+            <div class="platform-sub">Anthropic</div>
+          </div>
+        </button>
+        <button class="platform-btn" data-platform="localllm" onclick="selectPlatform('dest','localllm')">
+          <div class="platform-icon" style="background:#6366f11a">⚙</div>
+          <div class="platform-info">
+            <div class="platform-name">Local LLM</div>
+            <div class="platform-sub">Ollama / LM Studio</div>
+          </div>
+        </button>
+        <button class="platform-btn disabled" title="Coming soon">
+          <div class="platform-icon" style="background:#10a37f1a">🤖</div>
+          <div class="platform-info">
+            <div class="platform-name">ChatGPT</div>
+            <div class="platform-sub">OpenAI</div>
+          </div>
+          <span class="platform-badge soon">Soon</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Destination tier</div>
+      <div class="tier-grid" id="destTiers"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Context focus</div>
+      <div class="tier-grid" id="focusSelector">
+        <button class="tier-btn selected" data-focus="balanced" onclick="selectFocus('balanced')">Balanced</button>
+        <button class="tier-btn" data-focus="professional" onclick="selectFocus('professional')">Professional</button>
+        <button class="tier-btn" data-focus="personal" onclick="selectFocus('personal')">Personal</button>
+      </div>
+      <p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);">
+        <strong>Balanced</strong> — full summary across all sections. 
+        <strong>Professional</strong> — emphasises domain expertise, technical context, and work patterns; omits personal detail. 
+        <strong>Personal</strong> — emphasises lifestyle, preferences, goals, and communication style.
+      </p>
+    </div>
+
+    <div class="btn-row" style="border:none;padding:0;margin-top:8px;">
+      <div></div>
+      <button class="btn btn-primary" id="step1Next" disabled onclick="goToStep(2)">Continue →</button>
+    </div>
+  </div>
+
+  <!-- STEP 2: Request export -->
+  <div class="section" id="step2">
+    <div class="step-header">
+      <div class="step-num">2</div>
+      <div>
+        <div class="step-title">Request your data export</div>
+        <div class="step-subtitle" id="step2exportSubtitle">Trigger the export now — it can take many hours to arrive</div>
+      </div>
+    </div>
+
+    <div id="step2summary"></div>
+
+    <div id="step2exportContent"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(1)">← Back</button>
+      <button class="btn btn-primary" id="step2Next" onclick="goToStep(3)">I've requested the export →</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: Extraction prompt -->
+  <div class="section" id="step3">
+    <div class="step-header">
+      <div class="step-num">3</div>
+      <div>
+        <div class="step-title">Extract your context</div>
+        <div class="step-subtitle" id="step3subtitle">Use this prompt in ChatGPT to generate a structured summary of your assistant context</div>
+      </div>
+    </div>
+
+    <div id="step3summary"></div>
+
+    <div id="step3nativeCallout" style="display:none;" class="callout info" style="margin-bottom:12px;">
+      <span class="callout-icon">ℹ</span>
+      <div>
+        <strong>Simpler option for this migration:</strong> Anthropic's built-in import tool at
+        <a href="https://claude.com/import-memory" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">claude.com/import-memory</a>
+        handles straightforward memory transfers in two copy-paste steps — no export file needed.
+        Use LLMigrate's prompt below if you want deeper context extraction, have a large export file to process in Step 4, or the simple prompt didn't return much from your ChatGPT account.
+      </div>
+    </div>
+
+    <div class="callout info">
+      <span class="callout-icon">ℹ</span>
+      <div id="step3callout"></div>
+    </div>
+
+    <div style="position:relative;">
+      <div class="prompt-box" id="extractionPrompt"></div>
+      <button class="copy-btn" onclick="copyPrompt('extractionPrompt',this)">Copy</button>
+    </div>
+
+    <div class="callout warning" style="margin-top:16px;">
+      <span class="callout-icon">⚠</span>
+      <div>Review the output before saving it. Remove any genuinely sensitive information — passwords, financial account numbers, personal identifiers — that you would not want stored in Claude's memory.</div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(2)">← Back</button>
+      <button class="btn btn-primary" onclick="goToStep(4)">I've copied the prompt →</button>
+    </div>
+  </div>
+
+  <!-- STEP 4: File handling -->
+  <div class="section" id="step4">
+    <div class="step-header">
+      <div class="step-num">4</div>
+      <div>
+        <div class="step-title">Prepare your files</div>
+        <div class="step-subtitle">Upload files for processing — or skip if you're only importing a text summary</div>
+      </div>
+    </div>
+
+    <div id="step4summary"></div>
+
+    <div id="fileSection">
+      <div class="callout info">
+        <span class="callout-icon">ℹ</span>
+        <div id="fileSectionDesc"></div>
+      </div>
+
+      <!-- Context summary text file -->
+      <div class="instruction-block">
+        <div class="instruction-label">Option A — Context summary (recommended)</div>
+        <div class="instruction-content">
+          Save the output from Step 3 as a plain text file (<code>.txt</code>). 
+          You'll upload this directly to Claude in Step 5. No processing needed here — continue to Step 5.
+        </div>
+      </div>
+
+      <!-- JSON export splitter -->
+      <div class="instruction-block">
+        <div class="instruction-label">Option B — Full conversation export (optional, ChatGPT only)</div>
+        <div class="instruction-content" style="margin-bottom:12px;">
+          If you want to reference raw conversation history alongside your summary, upload your export file(s) here to split them if they exceed Claude's upload limit.
+          Gemini Takeout does not contain full conversation text — the Step 3 summary is the primary artefact for Gemini migrations.
+        </div>
+      </div>
+
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept=".json,.txt" multiple onchange="handleFiles(this.files)">
+        <span class="dropzone-icon">📂</span>
+        <strong>Select your conversation export</strong>
+        <p class="dropzone-desktop-hint">Drop files here or click to browse · conversations.json (ChatGPT) · Multiple files accepted</p>
+        <p class="dropzone-mobile-hint">Tap to open file picker · conversations.json (ChatGPT) · Multiple files accepted</p>
+      </div>
+
+      <div id="fileInfoContainer"></div>
+      <div id="processingStatus"></div>
+      <div id="usageProfile" style="display:none;"></div>
+      <div id="chunkContainer"></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(3)">← Back</button>
+      <button class="btn btn-primary" onclick="goToStep(5)">Continue to import →</button>
+    </div>
+  </div>
+
+  <!-- STEP 5: Import instructions -->
+  <div class="section" id="step5">
+    <div class="step-header">
+      <div class="step-num">5</div>
+      <div>
+        <div class="step-title">Import into Claude</div>
+        <div class="step-subtitle">Three mechanisms — use the ones that fit your context volume</div>
+      </div>
+    </div>
+
+    <div id="step5summary"></div>
+
+    <div id="importInstructions"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goToStep(4)">← Back</button>
+      <button class="btn btn-primary" onclick="goToStep(6)">Mark as complete →</button>
+    </div>
+  </div>
+
+  <!-- STEP 6: Done -->
+  <div class="section" id="step6">
+    <div style="text-align:center;padding:40px 20px 24px;">
+      <div style="font-size:48px;margin-bottom:16px;">✓</div>
+      <div style="font-size:22px;font-weight:600;margin-bottom:8px;">Migration complete</div>
+      <div style="color:var(--text-secondary);max-width:420px;margin:0 auto 32px;">Your context has been prepared for Claude. Test the import by starting a conversation and verifying Claude references your preferences and background correctly.</div>
+
+      <div class="card" style="text-align:left;">
+        <div class="card-title">Suggested verification prompts</div>
+        <div style="display:flex;flex-direction:column;gap:8px;" id="verificationPrompts"></div>
+      </div>
+
+      <!-- Affiliate CTAs — only shown when migrating to Claude -->
+      <div id="affiliateCtas" style="display:none;margin-top:24px;">
+        <div style="font-size:11px;font-family:var(--mono);color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px;">Get more from your new platform</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left;" id="affiliateCtaGrid"></div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <button class="btn btn-ghost" onclick="goToStep(1);resetState()">Start a new migration</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ─────────────────────────────────────────────
+// PLATFORM CAPABILITY DATA
+// Update this object as platform specs change.
+// Last verified: March 2026
+// Sources: OpenAI Help Center, Google AI Plans page, Anthropic support docs
+// ─────────────────────────────────────────────
+const PLATFORMS = {
+  chatgpt: {
+    name: 'ChatGPT',
+    vendor: 'OpenAI',
+    tiers: {
+      free: {
+        label: 'Free',
+        contextWindow: 16000,
+        memoryMechanism: 'Memory + Custom Instructions',
+        maxUploadMB: 512,
+        maxUploadFiles: 3,        // 3 files/day
+        notes: 'GPT-5.2 Instant (10 msgs/5hr then falls back to Mini). Memory available but limited slots. 3 file uploads per day.'
+      },
+      plus: {
+        label: 'Plus ($20/mo)',
+        contextWindow: 32000,     // GPT-5.2 Instant; Thinking mode gives 256K when manually selected
+        memoryMechanism: 'Memory + Custom Instructions + Projects',
+        maxUploadMB: 512,
+        maxUploadFiles: 20,       // 20 per message; 80 per 3hr rolling window
+        notes: 'GPT-5.2 Instant (160 msgs/3hr). Thinking mode (256K context) up to 3,000 msgs/week. 20 files per message, 512MB each, 80 files per 3-hour rolling window. 10GB storage.'
+      },
+      business: {
+        label: 'Business ($25-30/seat)',
+        contextWindow: 32000,
+        memoryMechanism: 'Memory + Custom Instructions + Projects',
+        maxUploadMB: 512,
+        maxUploadFiles: 20,
+        notes: 'Unlimited GPT-5.2 Instant and Thinking (subject to fair use). 100GB shared org storage.'
+      }
+    }
+  },
+  gemini: {
+    name: 'Gemini',
+    vendor: 'Google',
+    tiers: {
+      free: {
+        label: 'Free',
+        contextWindow: 32000,     // Gemini 3 Flash; limited context in app
+        memoryMechanism: 'Gems (instructions only); limited memory',
+        maxUploadFiles: null,
+        notes: 'Default model is Gemini 3 Flash. Limited Thinking (3 Pro) access with daily caps. No persistent memory. Gems available for custom instructions.'
+      },
+      pro: {
+        label: 'AI Pro ($19.99/mo)',
+        contextWindow: 1000000,
+        memoryMechanism: 'Memory + Gems',
+        maxUploadFiles: 1500,     // via 1M token context window (≈1,500 pages)
+        notes: 'Gemini 3 Pro. 1M token context (≈1,500 pages). Persistent memory. Full Gems. Deep Research. 2TB storage. Formerly "Gemini Advanced" / "Google One AI Premium".'
+      },
+      ultra: {
+        label: 'AI Ultra ($249.99/mo)',
+        contextWindow: 1000000,
+        memoryMechanism: 'Memory + Gems + highest limits',
+        maxUploadFiles: null,
+        notes: 'Gemini 3 Pro (highest limits) + Deep Think mode. Veo video generation. 30TB storage. Gemini Agent. Early access to all new features.'
+      }
+    }
+  },
+  claude: {
+    name: 'Claude',
+    vendor: 'Anthropic',
+    tiers: {
+      free: {
+        label: 'Free',
+        contextWindow: 200000,
+        memoryMechanism: 'User Preferences; basic Projects access',
+        maxUploadMB: 30,
+        maxUploadFiles: 20,       // 20 per conversation
+        maxFileSizeEach: 30,
+        notes: 'Claude Sonnet 4.6. 30–100 messages/day (dynamic). 200K context. 30MB per file, 20 files per conversation. Basic Projects access (limited vs Pro).'
+      },
+      pro: {
+        label: 'Pro ($20/mo)',
+        contextWindow: 200000,
+        memoryMechanism: 'User Preferences + Memory + Projects (unlimited files)',
+        maxUploadMB: 30,
+        maxUploadFiles: 20,       // 20 per conversation; unlimited in Projects
+        maxFileSizeEach: 30,
+        notes: 'Claude Sonnet 4.6 + Opus 4.6 access. ~45 msgs/5hr. 200K context standard; 1M token context (beta) on Opus 4.6. 30MB per file, 20 per conversation, unlimited files in Projects knowledge base. Full Memory. Claude Code + Cowork.'
+      },
+      team: {
+        label: 'Team ($25/seat/mo)',
+        contextWindow: 200000,
+        memoryMechanism: 'User Preferences + Memory + Shared Projects',
+        maxUploadMB: 30,
+        maxUploadFiles: 20,
+        maxFileSizeEach: 30,
+        notes: 'Everything in Pro. Shared Projects across team members. Admin console. SSO. Usage analytics. Higher priority during peak.'
+      }
+    }
+  },
+  localllm: {
+    name: 'Local LLM',
+    vendor: 'Ollama / LM Studio',
+    // Destination-only platform. No fixed tiers — "runtime" represents a single local deployment.
+    tiers: {
+      ollama: {
+        label: 'Ollama',
+        contextWindow: null,      // model-dependent; commonly 8K–128K
+        memoryMechanism: 'System prompt (Modelfile)',
+        maxFileSizeEach: null,    // no enforced limit; RAM-bound
+        maxUploadFiles: null,
+        notes: 'Context window depends on the loaded model (e.g. Llama 3.3 70B: 128K, Mistral 7B: 32K). System prompt is injected via a Modelfile or API system field. No persistent memory beyond what is baked into the Modelfile.'
+      },
+      lmstudio: {
+        label: 'LM Studio',
+        contextWindow: null,
+        memoryMechanism: 'System prompt (chat template)',
+        maxFileSizeEach: null,
+        maxUploadFiles: null,
+        notes: 'System prompt set per-model in the chat template. Context window is model-dependent. LM Studio exposes a local OpenAI-compatible API endpoint if you want to pipe context programmatically.'
+      }
+    }
+  }
+};
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+const state = {
+  source: null,
+  sourceTier: null,
+  dest: null,
+  destTier: null,
+  focus: 'balanced',
+  chunks: []
+};
+
+let currentStep = 1;
+
+// ─────────────────────────────────────────────
+// STEP NAVIGATION
+// ─────────────────────────────────────────────
+function goToStep(n) {
+  document.getElementById('step' + currentStep).classList.remove('active');
+  currentStep = n;
+  document.getElementById('step' + n).classList.add('active');
+  updateProgress();
+  if (n === 2) renderStep2();
+  if (n === 3) renderStep3();
+  if (n === 4) renderStep4();
+  if (n === 5) renderStep5();
+  if (n === 6) renderStep6();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateProgress() {
+  for (let i = 1; i <= 6; i++) {
+    const dot = document.getElementById('pd-' + i);
+    const line = document.getElementById('tl-' + (i - 1));
+    if (!dot) continue;
+    dot.className = 'step-dot' + (i < currentStep ? ' done' : i === currentStep ? ' active' : '');
+    if (line) line.className = 'track-line' + (i - 1 < currentStep - 1 ? ' done' : '');
+  }
+}
+
+function resetState() {
+  state.source = null; state.sourceTier = null;
+  state.dest = null; state.destTier = null;
+  state.focus = 'balanced';
+  state.chunks = [];
+  document.querySelectorAll('.platform-btn:not(.disabled)').forEach(b => b.classList.remove('selected'));
+  document.getElementById('sourceTiers').innerHTML = '';
+  document.getElementById('destTiers').innerHTML = '';
+  document.querySelectorAll('#focusSelector .tier-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.focus === 'balanced');
+  });
+  document.getElementById('step1Next').disabled = true;
+  currentStep = 1;
+  updateProgress();
+}
+
+// ─────────────────────────────────────────────
+// PLATFORM SELECTION
+// ─────────────────────────────────────────────
+function selectPlatform(role, platform) {
+  if (role === 'source') {
+    state.source = platform;
+    state.sourceTier = null;
+    document.querySelectorAll('#sourcePlatforms .platform-btn').forEach(b => {
+      b.classList.toggle('selected', b.dataset.platform === platform);
+    });
+    renderTiers('source', platform);
+  } else {
+    state.dest = platform;
+    state.destTier = null;
+    document.querySelectorAll('#destPlatforms .platform-btn').forEach(b => {
+      b.classList.toggle('selected', b.dataset.platform === platform);
+    });
+    renderTiers('dest', platform);
+  }
+  checkStep1();
+}
+
+function renderTiers(role, platform) {
+  const container = document.getElementById(role + 'Tiers');
+  const tiers = PLATFORMS[platform]?.tiers || {};
+  container.innerHTML = Object.entries(tiers).map(([key, t]) => `
+    <button class="tier-btn" data-tier="${key}" onclick="selectTier('${role}','${key}')">${t.label}</button>
+  `).join('');
+}
+
+function selectTier(role, tier) {
+  const containerKey = role + 'Tiers';
+  document.querySelectorAll(`#${containerKey} .tier-btn`).forEach(b => {
+    b.classList.toggle('selected', b.dataset.tier === tier);
+  });
+  if (role === 'source') state.sourceTier = tier;
+  else state.destTier = tier;
+  checkStep1();
+}
+
+function checkStep1() {
+  const ok = state.source && state.sourceTier && state.dest && state.destTier;
+  document.getElementById('step1Next').disabled = !ok;
+}
+
+function selectFocus(focus) {
+  state.focus = focus;
+  document.querySelectorAll('#focusSelector .tier-btn').forEach(b => {
+    b.classList.toggle('selected', b.dataset.focus === focus);
+  });
+}
+
+// ─────────────────────────────────────────────
+// STEP 2 — Request export
+// ─────────────────────────────────────────────
+function renderStep2() {
+  const srcName = PLATFORMS[state.source]?.name;
+  const dstName = PLATFORMS[state.dest]?.name;
+
+  document.getElementById('step2summary').innerHTML = summaryPill(srcName, state.sourceTier, dstName, state.destTier);
+
+  let html = '';
+
+  if (state.source === 'chatgpt') {
+    html = `
+      <div class="callout warning" style="margin-bottom:16px;">
+        <span class="callout-icon">⏱</span>
+        <div>
+          <strong>This will take time — do this first.</strong>
+          ChatGPT data exports are processed by OpenAI in a queue and can take anywhere from a few hours to over 24 hours.
+          You will receive an email when your archive is ready. Trigger the request now, then continue with Steps 3–5 while you wait.
+          Come back to Step 4 once you have the file.
+        </div>
+      </div>
+
+      <div class="instruction-block">
+        <div class="instruction-label">How to request your ChatGPT data export</div>
+        <div class="instruction-content">
+          <ol>
+            <li>Log in to <strong>chat.openai.com</strong></li>
+            <li>Click your <strong>profile icon</strong> (bottom-left) → <strong>Settings</strong></li>
+            <li>Go to <strong>Data controls</strong></li>
+            <li>Click <strong>"Export data"</strong> → confirm when prompted</li>
+            <li>OpenAI will email you a download link — this typically takes several hours but can take longer for large accounts</li>
+            <li>When the email arrives, download and unzip the archive — your conversation history is in <strong>conversations.json</strong> (larger accounts may receive multiple files)</li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">
+            Note: As of February 2026 ChatGPT uses GPT-5.2. Models GPT-4o, GPT-4.1, and GPT-5 have been retired from the ChatGPT app.
+            The export will contain your full history regardless of which model generated it.
+          </p>
+          <p style="margin-top:6px;color:var(--text-muted);font-size:12px;">
+            Note: OpenAI appears to partially limit how much context simple memory-export prompts can retrieve, particularly on large accounts.
+            The full data export (this step) is the more reliable route for users with extensive history.
+          </p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <span class="callout-icon">ℹ</span>
+        <div>You don't need the export file to continue. Steps 3 and 5 work without it — the export is only needed for Step 4 if you want to migrate your raw conversation history as well as your context summary.</div>
+      </div>`;
+  } else if (state.source === 'gemini') {
+    html = `
+      <div class="callout info" style="margin-bottom:16px;">
+        <span class="callout-icon">ℹ</span>
+        <div>
+          <strong>Gemini export is optional.</strong>
+          Google Takeout archives your Gemini activity but does not export full conversation text — only metadata and activity records.
+          The context summary you generate in Step 3 is the primary migration artefact. You can skip the export entirely if you prefer.
+        </div>
+      </div>
+
+      <div class="instruction-block">
+        <div class="instruction-label">How to request your Gemini data export (optional)</div>
+        <div class="instruction-content">
+          <ol>
+            <li>Go to <strong>takeout.google.com</strong></li>
+            <li>Click <strong>"Deselect all"</strong>, then scroll to and select <strong>"Gemini Apps Activity"</strong></li>
+            <li>Click <strong>Next step</strong> → choose delivery method → <strong>Create export</strong></li>
+            <li>Google will email you when the archive is ready (usually within a few hours)</li>
+            <li>Download and unzip — look for JSON files within the Gemini Apps Activity folder</li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">
+            The Takeout archive contains activity records, not full message text. For most users the Step 3 summary prompt will capture more useful context than the raw export.
+          </p>
+        </div>
+      </div>`;
+  } else if (state.dest === 'localllm') {
+    html = `
+      <div class="callout info">
+        <span class="callout-icon">ℹ</span>
+        <div>
+          <strong>No export needed for a local LLM destination.</strong>
+          Your context will be formatted as a system prompt or Modelfile in Step 5 — no data export from ${PLATFORMS[state.source]?.name} is required for that.
+          If you also want to import raw conversation history into your local model's context, you can request a ${state.source === 'gemini' ? 'Google Takeout archive' : 'ChatGPT data export'} now, but it is entirely optional.
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('step2exportContent').innerHTML = html;
+}
+
+// ─────────────────────────────────────────────
+// STEP 3 — Extraction prompt (was Step 2)
+// ─────────────────────────────────────────────
+function renderStep3() {
+  const srcTier = PLATFORMS[state.source]?.tiers[state.sourceTier];
+  const dstTier = PLATFORMS[state.dest]?.tiers[state.destTier];
+  const srcName = PLATFORMS[state.source]?.name;
+  const dstName = PLATFORMS[state.dest]?.name;
+
+  document.getElementById('step3summary').innerHTML = summaryPill(srcName, state.sourceTier, dstName, state.destTier);
+
+  const calloutText = state.source === 'gemini'
+    ? `Open a <strong>new Gemini conversation</strong> at gemini.google.com and paste this prompt. If you have memory enabled, ask Gemini to include anything it has saved about you. The output will be a structured text summary which you'll then import into ${dstName}.`
+    : `Open a <strong>new ChatGPT conversation</strong> at chat.openai.com and paste this prompt. The output will be a structured text summary — not your raw conversation history — which you'll then save and import into ${dstName}.`;
+  document.getElementById('step3callout').innerHTML = calloutText;
+
+  // Show the "simpler option" native tool callout only for ChatGPT → Claude migrations
+  const nativeCallout = document.getElementById('step3nativeCallout');
+  if (nativeCallout) {
+    nativeCallout.style.display = (state.source === 'chatgpt' && state.dest === 'claude') ? 'flex' : 'none';
+  }
+
+  const prompt = buildExtractionPrompt(srcName, srcTier, dstName, dstTier);
+  document.getElementById('extractionPrompt').textContent = prompt;
+}
+
+function buildExtractionPrompt(srcName, srcTier, dstName, dstTier) {
+  const focus = state.focus || 'balanced';
+
+  const geminiNote = srcName === 'Gemini'
+    ? `Note: Before generating the summary, check your internal Memory / Facts bank (if available on your tier) as well as any saved Gems instructions — these may contain context not visible in the current conversation history. Gemini does not retain full conversation history across sessions by default, so focus on what you do have access to.`
+    : `Note: You have access to your full conversation history. Draw on it to produce an accurate and specific summary.`;
+
+  const focusNote = focus === 'professional'
+    ? `Focus emphasis: PROFESSIONAL. Prioritise sections 1, 3, and 4 (professional background, technical context, ongoing work). Include section 2 (communication preferences) in full. Keep section 5 (personal context) brief — only include items that directly affect how you assist me professionally. Omit lifestyle detail.`
+    : focus === 'personal'
+    ? `Focus emphasis: PERSONAL. Prioritise sections 2, 5, and 6 (communication preferences, personal context, instructions). Include section 1 at a high level (role and industry only). Keep sections 3 and 4 brief — summarise active projects in one line each; omit deep technical detail.`
+    : `Focus emphasis: BALANCED. Cover all sections with equal weight.`;
+
+  return `You are helping me migrate my assistant context from ${srcName} to ${dstName}.
+
+Please review our conversation history and generate a structured, condensed context summary that I can import into ${dstName}. This is NOT raw conversation history — it is a distilled reference document.
+
+${geminiNote}
+
+${focusNote}
+
+Organise your output into these sections. Only include a section if you have meaningful information for it. Be factual and specific; avoid generalising.
+
+---
+
+## 1. Professional background
+- My role, industry, organisation type and size
+- Relevant domain expertise and qualifications
+- Key projects or workstreams I have mentioned
+
+## 2. Communication preferences
+- Preferred tone, formality level, and response style
+- Formatting preferences (bullets, prose, tables, etc.)
+- Things I have explicitly asked you to do or avoid
+
+## 3. Technical context
+- Tools, platforms, systems, or technologies I regularly use
+- Programming languages, frameworks, or technical stacks
+- Any specialist domain knowledge that affects how you should respond to me
+
+## 4. Ongoing tasks and projects
+- Active projects or problems I have been working through
+- Outstanding decisions or open questions from our conversations
+- Key conclusions or decisions already reached
+
+## 5. Personal context (include only if directly relevant to AI assistance)
+- Relevant personal preferences, goals, or constraints
+- Nothing sensitive (no financial account numbers, passwords, or identifying data)
+
+## 6. Key preferences and instructions for my new assistant
+- Explicit instructions you should always follow
+- Things I found helpful that you should replicate
+- Things I found unhelpful that you should avoid
+
+---
+
+Format this as clean plain text with the section headers above. Keep each section concise — aim for accuracy over completeness. Where you are uncertain, omit rather than guess.`;
+}
+
+// ─────────────────────────────────────────────
+// STEP 4 — File handling (was Step 3)
+// ─────────────────────────────────────────────
+function renderStep4() {
+  const dstTier = PLATFORMS[state.dest]?.tiers[state.destTier];
+  const srcName = PLATFORMS[state.source]?.name;
+  const dstName = PLATFORMS[state.dest]?.name;
+
+  document.getElementById('step4summary').innerHTML = summaryPill(srcName, state.sourceTier, dstName, state.destTier);
+
+  const maxMB = dstTier?.maxFileSizeEach || 10;
+  const exportNote = state.source === 'gemini'
+    ? `Gemini exports via <strong>Google Takeout</strong> (takeout.google.com → Gemini Apps Activity). The archive contains JSON files with your activity. Gemini does not export full message content by default — this step is optional. The text summary from Step 3 is the primary migration artefact.`
+    : `ChatGPT exports as <strong>conversations.json</strong> (requested in Step 2). If your files exceed the destination limit, use the splitter below.`;
+  document.getElementById('fileSectionDesc').innerHTML =
+    `Your destination tier (<strong>${dstName} ${dstTier?.label}</strong>) supports files up to <strong>${maxMB} MB each</strong> and up to <strong>${dstTier?.maxUploadFiles || 5} files per conversation</strong>. ${exportNote}`;
+
+  // Set up drag-drop
+  const dz = document.getElementById('dropzone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+}
+
+function handleFiles(fileList) {
+  if (!fileList || !fileList.length) return;
+  const files = Array.from(fileList);
+
+  const dstTier = PLATFORMS[state.dest]?.tiers[state.destTier];
+  const maxBytes = (dstTier?.maxFileSizeEach || 10) * 1024 * 1024;
+
+  // Show file list in UI
+  const container = document.getElementById('fileInfoContainer');
+  const totalSize = files.reduce((s, f) => s + f.size, 0);
+
+  container.innerHTML = `
+    <div class="file-info">
+      <div class="file-icon">${files.length > 1 ? '🗂' : (files[0].name.endsWith('.json') ? '📄' : '📝')}</div>
+      <div class="file-details">
+        <div class="file-name">${files.length === 1 ? escHtml(files[0].name) : `${files.length} files selected`}</div>
+        <div class="file-size">${formatBytes(totalSize)} total${files.length > 1 ? ' · ' + files.map(f => escHtml(f.name)).join(', ') : ''}</div>
+      </div>
+      <button class="file-clear" onclick="clearFile()" title="Remove">✕</button>
+    </div>`;
+
+  const jsonFiles = files.filter(f => f.name.endsWith('.json'));
+  const txtFiles  = files.filter(f => !f.name.endsWith('.json'));
+
+  if (jsonFiles.length === 0 && txtFiles.length > 0) {
+    // Text files only
+    const f = txtFiles[0];
+    if (f.size > maxBytes) {
+      setStatus('error', `File is ${formatBytes(f.size)}, exceeding the ${formatBytes(maxBytes)} limit. Split it manually by content sections.`);
+    } else {
+      setStatus('success', `File is within limit (${formatBytes(f.size)}). Ready to upload in Step 4.`);
+    }
+    return;
+  }
+
+  // ── Streaming JSON pipeline ───────────────────────────────────────────────
+  // Files are read in 4 MB slices. A hand-rolled state-machine parser extracts
+  // top-level array items one at a time so peak memory stays flat regardless of
+  // file size — the full parsed object tree is never held in memory simultaneously.
+  // Output chunks are built on the fly and written to Blob URLs as they complete.
+
+  const mergedLabel = jsonFiles.length > 1
+    ? `merged_${jsonFiles.length}_files`
+    : jsonFiles[0].name.replace(/\.json$/i, '');
+
+  setStatus('processing', jsonFiles.length > 1
+    ? `Streaming ${jsonFiles.length} files — processing in 4 MB slices…`
+    : 'Streaming JSON — processing in 4 MB slices…');
+
+  streamParseAllFiles(jsonFiles, maxBytes, mergedLabel);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STREAMING JSON PARSER
+// Handles a top-level JSON array (or object wrapping an array) without loading
+// the entire file. Reads in STREAM_SLICE byte slices via File.slice().
+// ─────────────────────────────────────────────────────────────────────────────
+const STREAM_SLICE = 4 * 1024 * 1024; // 4 MB read slices
+
+async function streamParseAllFiles(files, maxBytes, mergedLabel) {
+  const profile = { convCount: 0, totalChars: 0, maxChars: 0, longCount: 0, veryLongCount: 0 };
+  const chunks  = [];  // completed output chunk descriptors {url, size, count}
+  let curParts  = [];  // serialised item strings in current chunk
+  let curSize   = 2;   // byte count for current chunk (starts at 2 for [ ])
+  let totalConvs = 0;
+  let isGemini  = false;
+
+  function flushChunk() {
+    if (curParts.length === 0) return;
+    const content = '[' + curParts.join(',') + ']';
+    const blob = new Blob([content], { type: 'text/plain' });
+    chunks.push({ url: URL.createObjectURL(blob), size: content.length, count: curParts.length });
+    curParts = []; curSize = 2;
+  }
+
+  function acceptItem(itemStr) {
+    const itemSize = itemStr.length + 1; // +1 for comma separator
+    if (curParts.length > 0 && (curSize + itemSize) > maxBytes) flushChunk();
+    curParts.push(itemStr);
+    curSize += itemSize;
+    totalConvs++;
+    // Accumulate profile stats (serialised char length as token proxy)
+    const chars = itemStr.length;
+    profile.convCount++;
+    profile.totalChars += chars;
+    if (chars > profile.maxChars) profile.maxChars = chars;
+    if (chars > 32000)  profile.longCount++;
+    if (chars > 128000) profile.veryLongCount++;
+  }
+
+  try {
+    for (const file of files) {
+      await streamParseFile(file, acceptItem, flag => { if (flag === 'gemini') isGemini = true; });
+      setStatus('processing', `${totalConvs.toLocaleString()} conversations processed — continuing…`);
+    }
+  } catch (err) {
+    setStatus('error', err.message);
+    return;
+  }
+
+  flushChunk();
+
+  if (totalConvs === 0) {
+    setStatus('error', 'No conversation items found. Check the file is a valid ChatGPT or Gemini export.');
+    return;
+  }
+
+  if (!isGemini) renderUsageProfile(profile);
+
+  const nameBase = mergedLabel.replace(/\.json$/i, '');
+
+  if (chunks.length === 1) {
+    setStatus('success', `Parsed ${totalConvs.toLocaleString()} conversation${totalConvs !== 1 ? 's' : ''} — within the ${formatBytes(maxBytes)} limit. Download below.`);
+    document.getElementById('chunkContainer').innerHTML = `
+      <div class="chunk-list">
+        <div class="chunk-item">
+          <div class="chunk-num">TXT</div>
+          <div class="chunk-details">
+            <div class="chunk-name">${nameBase}_context.txt</div>
+            <div class="chunk-meta">${totalConvs.toLocaleString()} conversations · ${formatBytes(chunks[0].size)}</div>
+          </div>
+          <a class="dl-btn" href="${chunks[0].url}" download="${nameBase}_context.txt">Download</a>
+        </div>
+      </div>`;
+  } else {
+    setStatus('success', `Split into ${chunks.length} files across ${totalConvs.toLocaleString()} conversations. Each file is within the upload limit.`);
+    state.chunks = chunks.map((c, i) => ({
+      url:   c.url,
+      name:  `${nameBase}_part${i + 1}_of${chunks.length}.txt`,
+      size:  c.size,
+      count: c.count
+    }));
+    document.getElementById('chunkContainer').innerHTML = `
+      <div class="chunk-list">
+        ${state.chunks.map((u, i) => `
+          <div class="chunk-item">
+            <div class="chunk-num">${i + 1}/${chunks.length}</div>
+            <div class="chunk-details">
+              <div class="chunk-name">${u.name}</div>
+              <div class="chunk-meta">${u.count} conversation${u.count !== 1 ? 's' : ''} · ${formatBytes(u.size)}</div>
+            </div>
+            <a class="dl-btn" href="${u.url}" download="${u.name}">Download</a>
+          </div>`).join('')}
+      </div>
+      <button class="dl-all-btn" onclick="downloadAll()">⬇ Download all ${chunks.length} files</button>`;
+  }
+}
+
+async function streamParseFile(file, onItem, onFlag) {
+  // Reads the file in STREAM_SLICE slices. A character-level state machine tracks
+  // JSON nesting depth and string state to identify complete top-level objects,
+  // extracting each one without holding the full file text in memory.
+  const decoder   = new TextDecoder('utf-8');
+  let   remainder = '';   // leftover text carried from previous slice
+  let   depth     = 0;    // current nesting depth inside the root array
+  let   inString  = false;
+  let   escape    = false;
+  let   itemStart = -1;   // index in `full` where current item began
+  let   preamble  = true; // still scanning for the opening of the item array
+
+  let offset = 0;
+  while (offset < file.size) {
+    const sliceBytes = await file.slice(offset, offset + STREAM_SLICE).arrayBuffer();
+    const text = decoder.decode(new Uint8Array(sliceBytes), { stream: true });
+    let   full = remainder + text;
+    let   pos  = 0;
+
+    if (preamble) {
+      const trimmed = full.trimStart();
+      if (trimmed.startsWith('[')) {
+        pos = full.indexOf('[') + 1;
+        preamble = false;
+        depth = 0;
+      } else if (trimmed.startsWith('{')) {
+        // Root object — find the first `:[ ` to locate the array value
+        const arrIdx = full.indexOf(':[');
+        if (arrIdx !== -1) {
+          if (full.slice(0, arrIdx).includes('emini')) onFlag('gemini');
+          pos = arrIdx + 2;
+          preamble = false;
+          depth = 0;
+        } else {
+          // Haven't seen array open yet — carry everything forward
+          remainder = full;
+          offset += STREAM_SLICE;
+          continue;
+        }
+      } else {
+        remainder = full;
+        offset += STREAM_SLICE;
+        continue;
+      }
+    }
+
+    for (let i = pos; i < full.length; i++) {
+      const ch = full[i];
+      if (escape)    { escape = false; continue; }
+      if (inString)  {
+        if (ch === '\\') { escape = true; continue; }
+        if (ch === '"')    { inString = false; }
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{' || ch === '[') {
+        if (depth === 0 && ch === '{') itemStart = i;
+        depth++;
+        continue;
+      }
+      if (ch === '}' || ch === ']') {
+        depth--;
+        if (depth === 0 && itemStart !== -1) {
+          const itemStr = full.slice(itemStart, i + 1);
+          try { JSON.parse(itemStr); onItem(itemStr); } catch (_) {}
+          itemStart = -1;
+        }
+        if (depth < 0) { remainder = ''; return; } // end of root array
+      }
+    }
+
+    remainder = itemStart !== -1 ? full.slice(itemStart) : '';
+    offset += STREAM_SLICE;
+  }
+}
+
+function renderUsageProfile(profile) {
+  // profile = { convCount, totalChars, maxChars, longCount, veryLongCount }
+  // Stats were accumulated during streaming — no full array held in memory.
+  const APPROX_CHARS_PER_TOKEN = 4;
+  const { convCount, totalChars, maxChars, longCount: longConvCount, veryLongCount } = profile;
+  const avgConvTokens = convCount > 0 ? Math.round((totalChars / convCount) / APPROX_CHARS_PER_TOKEN) : 0;
+  const maxConvTokens = Math.round(maxChars / APPROX_CHARS_PER_TOKEN);
+  const longPct       = convCount > 0 ? Math.round((longConvCount / convCount) * 100) : 0;
+
+  // ── Build profile flags ───────────────────────────────────────────────
+  const flags = [];
+
+  if (veryLongCount > 0) {
+    flags.push({
+      level: 'warning',
+      icon: '⚠',
+      title: `${veryLongCount} very long conversation${veryLongCount > 1 ? 's' : ''} detected`,
+      body: `${veryLongCount} of your conversations exceed ~32k tokens. These sessions would consume a substantial fraction of Claude's 200k context window in a single chat. Heavy multi-turn coding or analysis sessions are the most common cause.`,
+      mitigations: [
+        'Use Claude Projects with a knowledge base file rather than long in-conversation context — the Project persists between sessions',
+        'Break long sessions into discrete tasks: new conversation per task rather than one continuous thread',
+        'Keep your system prompt lean — store domain knowledge in a Project file, not in the opening message',
+        'For code work: paste only the relevant function or file, not the entire codebase'
+      ]
+    });
+  }
+
+  if (longPct >= 30) {
+    flags.push({
+      level: 'info',
+      icon: 'ℹ',
+      title: `${longPct}% of your conversations are long-form`,
+      body: `Your usage pattern skews toward extended sessions. Claude handles these well up to its 200k token limit, but you may find shorter, more focused conversations more effective than the marathon sessions that work well in Codex/GPT-4.`,
+      mitigations: [
+        'Claude\'s Projects feature is the direct equivalent of Codex\'s persistent workspace — set it up before your first session',
+        'Upload relevant documents to a Project knowledge base rather than pasting them inline each time',
+        'Claude tends to perform better with precise, scoped requests than open-ended "keep going" sessions'
+      ]
+    });
+  }
+
+  if (avgConvTokens > 8000) {
+    flags.push({
+      level: 'info',
+      icon: 'ℹ',
+      title: `Average conversation is ~${avgConvTokens.toLocaleString()} tokens`,
+      body: `Your average session is significantly longer than typical. This is fine within Claude's context window, but agentic loops (where the model calls tools or iterates repeatedly) consume context faster than standard Q&A.`,
+      mitigations: [
+        'If you use Claude for agentic coding tasks, Claude.ai Pro\'s extended thinking mode is well-suited to multi-step reasoning without burning context on intermediate output',
+        'Consider Claude API with claude-opus-4-6 for heavy agentic workloads — the API gives you finer control over context management than the chat interface'
+      ]
+    });
+  }
+
+  // Nothing to flag
+  if (flags.length === 0) return;
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+      ${[
+        ['Conversations', conversations.length.toLocaleString()],
+        ['Avg length', `~${avgConvTokens.toLocaleString()} tokens`],
+        ['Longest', `~${maxConvTokens.toLocaleString()} tokens`]
+      ].map(([label, val]) => `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;">
+          <div style="font-size:11px;color:var(--text-muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">${label}</div>
+          <div style="font-size:15px;font-weight:600;color:var(--text);">${val}</div>
+        </div>`).join('')}
+    </div>`;
+
+  const flagsHtml = flags.map(f => `
+    <div class="callout ${f.level === 'warning' ? 'warning' : 'info'}" style="flex-direction:column;gap:8px;margin-bottom:12px;">
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span class="callout-icon" style="flex-shrink:0;">${f.icon}</span>
+        <div>
+          <strong>${f.title}</strong><br>
+          <span style="font-size:12.5px;">${f.body}</span>
+        </div>
+      </div>
+      <div style="margin-left:26px;">
+        <div style="font-size:11px;font-family:var(--mono);color:inherit;opacity:0.7;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">Mitigation strategies</div>
+        <ul style="padding-left:16px;display:flex;flex-direction:column;gap:4px;">
+          ${f.mitigations.map(m => `<li style="font-size:12.5px;">${m}</li>`).join('')}
+        </ul>
+      </div>
+    </div>`).join('');
+
+  // Insert profile section above the chunk container
+  const profileEl = document.getElementById('usageProfile');
+  if (profileEl) {
+    profileEl.innerHTML = `
+      <div class="card" style="margin-top:16px;">
+        <div class="card-title">Usage profile — Claude compatibility</div>
+        ${statsHtml}
+        ${flagsHtml}
+      </div>`;
+    profileEl.style.display = 'block';
+  }
+}
+
+function handleFile(file) {
+  // Legacy single-file path — delegate to handleFiles
+  if (file) handleFiles([file]);
+}
+function offerRename(originalName, content) {
+  const newName = originalName.replace(/\.json$/i, '') + '_context.txt';
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const el = document.getElementById('chunkContainer');
+  el.innerHTML = `
+    <div class="chunk-list">
+      <div class="chunk-item">
+        <div class="chunk-num">TXT</div>
+        <div class="chunk-details">
+          <div class="chunk-name">${escHtml(newName)}</div>
+          <div class="chunk-meta">JSON renamed to .txt for upload compatibility</div>
+        </div>
+        <a class="dl-btn" href="${url}" download="${escHtml(newName)}">Download</a>
+      </div>
+    </div>`;
+}
+
+function splitJsonItems(items, baseName, maxBytes) {
+  const chunks = [];
+  let current = [];
+  let currentSize = 2; // account for [ ]
+
+  for (const item of items) {
+    const serialised = JSON.stringify(item);
+    const itemSize = serialised.length + 2; // +2 for comma+space
+
+    if (current.length > 0 && (currentSize + itemSize) > maxBytes) {
+      chunks.push([...current]);
+      current = [item];
+      currentSize = 2 + itemSize;
+    } else {
+      current.push(item);
+      currentSize += itemSize;
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+
+  if (chunks.length === 1) {
+    setStatus('success', 'All conversations fit within the limit — no splitting needed. Download below.');
+    offerRename(baseName + '.json', JSON.stringify(chunks[0], null, 2));
+    return;
+  }
+
+  setStatus('success', `Split into ${chunks.length} files across ${items.length} conversations. Each file is within the upload limit.`);
+
+  const urls = chunks.map((chunk, i) => {
+    const txt = JSON.stringify(chunk, null, 2);
+    const blob = new Blob([txt], { type: 'text/plain' });
+    return {
+      url: URL.createObjectURL(blob),
+      name: `${baseName}_part${i + 1}_of${chunks.length}.txt`,
+      size: txt.length,
+      count: chunk.length
+    };
+  });
+
+  state.chunks = urls;
+
+  const el = document.getElementById('chunkContainer');
+  el.innerHTML = `
+    <div class="chunk-list">
+      ${urls.map((u, i) => `
+        <div class="chunk-item">
+          <div class="chunk-num">${i + 1}/${chunks.length}</div>
+          <div class="chunk-details">
+            <div class="chunk-name">${escHtml(u.name)}</div>
+            <div class="chunk-meta">${u.count} conversation${u.count !== 1 ? 's' : ''} · ${formatBytes(u.size)}</div>
+          </div>
+          <a class="dl-btn" href="${u.url}" download="${escHtml(u.name)}">Download</a>
+        </div>`).join('')}
+    </div>
+    <button class="dl-all-btn" onclick="downloadAll()">⬇ Download all ${urls.length} files</button>`;
+}
+
+function downloadAll() {
+  state.chunks.forEach((c, i) => {
+    setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = c.url; a.download = c.name;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+    }, i * 400);
+  });
+}
+
+function clearFile() {
+  state.chunks = [];
+  document.getElementById('fileInfoContainer').innerHTML = '';
+  document.getElementById('processingStatus').innerHTML = '';
+  const profile = document.getElementById('usageProfile');
+  if (profile) { profile.innerHTML = ''; profile.style.display = 'none'; }
+  document.getElementById('chunkContainer').innerHTML = '';
+  document.getElementById('fileInput').value = '';
+}
+
+function setStatus(type, msg) {
+  const icons = { processing: '<div class="spin"></div>', success: '✓', error: '✕' };
+  document.getElementById('processingStatus').innerHTML =
+    `<div class="status ${type}">${icons[type]} <span>${escHtml(msg)}</span></div>`;
+}
+
+// ─────────────────────────────────────────────
+// STEP 5 — Import instructions (was Step 4)
+// ─────────────────────────────────────────────
+function renderStep5() {
+  const srcName = PLATFORMS[state.source]?.name;
+  const dstName = PLATFORMS[state.dest]?.name;
+  const dstTier = PLATFORMS[state.dest]?.tiers[state.destTier];
+
+  document.getElementById('step5summary').innerHTML = summaryPill(srcName, state.sourceTier, dstName, state.destTier);
+
+  let html = '';
+
+  // ── Local LLM destination ──────────────────
+  if (state.dest === 'localllm') {
+    const isOllama = state.destTier === 'ollama';
+
+    // Generate the system prompt content now, using the same extraction prompt logic
+    // but addressed to the local model rather than the source platform.
+    const srcName2 = PLATFORMS[state.source]?.name;
+    const srcTier2 = PLATFORMS[state.source]?.tiers[state.sourceTier];
+    const systemPromptContent = buildExtractionPrompt(srcName2, srcTier2, 'your local AI assistant', null);
+
+    const modelfileContent = isOllama
+      ? `FROM llama3.3\nSYSTEM """\n${systemPromptContent}\n"""`
+      : systemPromptContent;
+
+    const promptLabel = isOllama ? 'Generated Modelfile' : 'Generated system prompt';
+    const promptId = 'localLlmSystemPrompt';
+
+    html += `
+      <div class="instruction-block">
+        <div class="instruction-label">Your generated ${isOllama ? 'Modelfile' : 'system prompt'}</div>
+        <div class="instruction-content" style="margin-bottom:12px;">
+          This has been pre-filled with the extraction prompt configured in Step 3. Copy it and follow the instructions below.
+          ${isOllama ? 'Replace <code>llama3.3</code> with the name of your installed model.' : ''}
+        </div>
+        <div style="position:relative;">
+          <div class="prompt-box" id="${promptId}">${escHtml(modelfileContent)}</div>
+          <button class="copy-btn" onclick="copyPrompt('${promptId}',this)">Copy</button>
+        </div>
+      </div>
+
+      <div class="instruction-block">
+        <div class="instruction-label">Method 1 — ${isOllama ? 'Modelfile (bake context into a named model)' : 'System prompt (chat template)'}</div>
+        <div class="instruction-content">
+          ${isOllama ? `
+          <ol>
+            <li>Save the Modelfile above to a file named <code>Modelfile</code> (no extension)</li>
+            <li>Open a terminal and run: <code>ollama create mymodel -f Modelfile</code></li>
+            <li>Start a session: <code>ollama run mymodel</code></li>
+            <li>Verify with: <em>"What do you know about my professional background?"</em></li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">The generated system prompt is ~600–900 tokens. This fits comfortably within all common local models. For Open WebUI users: paste the system prompt content into the model's system field under Workspace → Models.</p>` : `
+          <ol>
+            <li>In LM Studio, open the <strong>Chat</strong> tab and select your model</li>
+            <li>Click <strong>System Prompt</strong> (below the model selector) and paste the generated text above</li>
+            <li>Save it as a preset so you can reload it across sessions</li>
+            <li>Verify with: <em>"What do you know about my professional background?"</em></li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">LM Studio also exposes a local OpenAI-compatible API at <code>http://localhost:1234/v1</code> — pass the system prompt as the <code>system</code> message in API calls if you prefer programmatic access.</p>`}
+        </div>
+      </div>
+
+      <div class="instruction-block">
+        <div class="instruction-label">Method 2 — Context file injection (optional)</div>
+        <div class="instruction-content">
+          <p style="margin-bottom:10px">If you exported raw conversation history in Step 4, you can inject it for reference — useful for retrieval-style queries on past work.</p>
+          <ol>
+            <li>Use the split <code>.txt</code> chunks from Step 4</li>
+            <li>${isOllama
+              ? 'Use <strong>Open WebUI</strong> (integrates natively with Ollama) to upload and index files for RAG, or pass chunks as additional context messages via the Ollama API.'
+              : 'In LM Studio, use the <strong>Documents</strong> tab to upload and index your context files, or inject them as user messages via the API.'}</li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">Context window limits vary by model — most 7B–13B models support 8K–32K tokens. The Step 3 text summary is almost always more effective than raw JSON history.</p>
+        </div>
+      </div>`;
+
+    document.getElementById('importInstructions').innerHTML = html;
+    return;
+  }
+
+  // ── Claude destination ─────────────────────
+  const hasProjects = state.destTier === 'pro' || state.destTier === 'team';
+  const hasPersistentMemory = state.destTier !== 'free';
+
+  // Mechanism 1: User Preferences
+  html += `
+    <div class="instruction-block">
+      <div class="instruction-label">Mechanism 1 — User Preferences (all tiers)</div>
+      <div class="instruction-content">
+        <p style="margin-bottom:10px">User Preferences are persistent instructions Claude applies across all conversations. They are the primary mechanism for carrying over your communication style, background, and behavioural instructions.</p>
+        <ol>
+          <li>In Claude, click your <strong>profile icon</strong> → <strong>Settings</strong></li>
+          <li>Find <strong>"User Preferences"</strong> (also called "Custom instructions" in some clients)</li>
+          <li>Paste a condensed version of your context summary: your role, expertise, communication preferences, and key behavioural instructions</li>
+          <li>Keep it under ~2,000 characters for reliable recall</li>
+          <li>Save and verify by starting a new conversation: ask Claude to summarise what it knows about you</li>
+        </ol>
+        <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">Tip: Focus User Preferences on <em>who you are</em> and <em>how you want responses formatted</em>. Save domain-specific detail for Project Instructions or file uploads.</p>
+      </div>
+    </div>`;
+
+  // Mechanism 2: Memory
+  if (hasPersistentMemory) {
+    html += `
+      <div class="instruction-block">
+        <div class="instruction-label">Mechanism 2 — Memory (Pro / Team)</div>
+        <div class="instruction-content">
+          <p style="margin-bottom:10px">Claude's memory system stores facts across conversations. You can seed it directly with a prompt, or let Claude build it organically as you work.</p>
+          <ol>
+            <li>Start a conversation and paste your context summary from Step 3</li>
+            <li>Tell Claude: <em>"Please read this and save key facts about me to your memory"</em></li>
+            <li>Claude will extract and store salient facts — you can then view and edit them via <strong>Settings → Memory</strong></li>
+            <li>Review what was saved and remove or correct any inaccuracies</li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">Memory is most useful for contextual facts (your job, preferences, ongoing projects). Behavioural instructions belong in User Preferences.</p>
+        </div>
+      </div>`;
+  }
+
+  // Mechanism 3: Projects (Pro/Team)
+  if (hasProjects) {
+    html += `
+      <div class="instruction-block">
+        <div class="instruction-label">Mechanism 3 — Projects (Pro / Team)</div>
+        <div class="instruction-content">
+          <p style="margin-bottom:10px">Projects give you a persistent workspace with its own instructions and uploaded files — ideal for domain-specific context that would clutter your general preferences.</p>
+          <ol>
+            <li>In Claude, click <strong>New project</strong> in the left sidebar</li>
+            <li>Open the project and click <strong>Project instructions</strong></li>
+            <li>Paste domain-specific context: your technical environment, ongoing workstreams, terminology, and project-specific instructions</li>
+            <li>Upload your context summary text file (from Step 4) or any split chunks via the <strong>Add files</strong> button</li>
+            <li>All conversations within this project will have access to these files and instructions automatically</li>
+          </ol>
+          <p style="margin-top:10px;color:var(--text-muted);font-size:12px;">File limit: <strong>${dstTier?.maxUploadFiles || 20} files</strong>, up to <strong>${dstTier?.maxFileSizeEach || 30} MB each</strong>. Use .txt format for compatibility. Raw JSON is accepted but .txt is more reliably indexed.</p>
+        </div>
+      </div>`;
+  }
+
+  // Capability comparison
+  html += `
+    <div class="instruction-block">
+      <div class="instruction-label">Platform capability reference</div>
+      <div class="instruction-content" style="padding:0;overflow:hidden;">
+        <table class="cap-table">
+          <thead>
+            <tr>
+              <th>Attribute</th>
+              <th>Source (${PLATFORMS[state.source]?.name} ${state.sourceTier})</th>
+              <th>Destination (${PLATFORMS[state.dest]?.name} ${state.destTier})</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${capRow('Context window',
+              fmtNum(PLATFORMS[state.source]?.tiers[state.sourceTier]?.contextWindow) + ' tokens',
+              fmtNum(PLATFORMS[state.dest]?.tiers[state.destTier]?.contextWindow) + ' tokens')}
+            ${capRow('Memory mechanism',
+              PLATFORMS[state.source]?.tiers[state.sourceTier]?.memoryMechanism || '—',
+              PLATFORMS[state.dest]?.tiers[state.destTier]?.memoryMechanism || '—')}
+            ${capRow('Max file size',
+              PLATFORMS[state.source]?.tiers[state.sourceTier]?.maxUploadMB ? PLATFORMS[state.source]?.tiers[state.sourceTier]?.maxUploadMB + ' MB' : '—',
+              PLATFORMS[state.dest]?.tiers[state.destTier]?.maxFileSizeEach ? PLATFORMS[state.dest]?.tiers[state.destTier]?.maxFileSizeEach + ' MB each' : '—')}
+            ${capRow('Max files per upload',
+              PLATFORMS[state.source]?.tiers[state.sourceTier]?.maxUploadFiles || '—',
+              PLATFORMS[state.dest]?.tiers[state.destTier]?.maxUploadFiles || '—')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById('importInstructions').innerHTML = html;
+}
+
+function capRow(label, src, dst) {
+  return `<tr><td>${label}</td><td>${src}</td><td class="cap-val">${dst}</td></tr>`;
+}
+
+// ─────────────────────────────────────────────
+// STEP 6 — Done
+// ─────────────────────────────────────────────
+function renderStep6() {
+  const prompts = [
+    'What do you know about my professional background?',
+    'Summarise my communication preferences as you understand them.',
+    'What ongoing projects or tasks do you have context on?',
+    'What instructions have I asked you to always follow?'
+  ];
+  document.getElementById('verificationPrompts').innerHTML = prompts.map(p => `
+    <div style="position:relative;">
+      <div class="prompt-box" style="padding:12px 80px 12px 14px;font-size:12.5px;">${escHtml(p)}</div>
+      <button class="copy-btn" onclick="copyPrompt(null,this,'${escHtml(p)}')" style="top:8px;">Copy</button>
+    </div>`).join('');
+
+  // Show affiliate CTAs contextually based on destination
+  const ctaContainer = document.getElementById('affiliateCtas');
+  const ctaGrid = document.getElementById('affiliateCtaGrid');
+
+  if (state.dest === 'claude') {
+    const isFreeTier = state.destTier === 'free';
+    ctaGrid.innerHTML = `
+      ${isFreeTier ? `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;grid-column:1/-1;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Upgrade to Claude Pro to use everything you just set up</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">You're on the Free tier. Persistent Memory and full Projects file storage — the two mechanisms LLMigrate just configured — require a Pro subscription.</div>
+        <a href="CLAUDE_AFFILIATE_URL" target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:white;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
+          Try Claude Pro — $20/month →
+        </a>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — we earn a small commission at no cost to you.</div>
+      </div>` : `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Running Ollama locally?</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">The Mac Mini M4 handles 7B–13B models without a discrete GPU. The M4 Pro runs 32B models comfortably.</div>
+        <a href="APPLE_AFFILIATE_URL" target="_blank" rel="noopener"
+           style="display:inline-block;background:#2d1f5e;color:#a78bfa;border:1px solid #4c35a0;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
+          View Mac Mini M4 →
+        </a>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — commission earned.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Share LLMigrate</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">If this saved you time, sharing it is the best way to support it.</div>
+        <a href="https://twitter.com/intent/tweet?text=Just%20migrated%20my%20AI%20assistant%20context%20using%20LLMigrate%20%E2%80%94%20free%2C%20private%2C%20runs%20entirely%20in%20the%20browser.%20llmigrate.com" target="_blank" rel="noopener"
+           style="display:inline-block;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
+          Share on X/Twitter →
+        </a>
+      </div>`}`;
+    ctaContainer.style.display = 'block';
+
+  } else if (state.dest === 'localllm') {
+    ctaGrid.style.gridTemplateColumns = '1fr 1fr';
+    ctaGrid.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Mac Mini M4 for local models</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">Silent, efficient, and handles 7B–32B models depending on the variant. The default choice for most Ollama users.</div>
+        <a href="APPLE_AFFILIATE_URL" target="_blank" rel="noopener"
+           style="display:inline-block;background:#2d1f5e;color:#a78bfa;border:1px solid #4c35a0;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
+          View Mac Mini M4 →
+        </a>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — commission earned.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Hetzner GPU VPS</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">Run Ollama on a server rather than locally. Hetzner's GPU instances are among the cheapest in Europe for 24/7 model hosting.</div>
+        <a href="HETZNER_AFFILIATE_URL" target="_blank" rel="noopener"
+           style="display:inline-block;background:#3d2200;color:var(--warning);border:1px solid #6b3c00;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
+          View Hetzner plans →
+        </a>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — commission earned.</div>
+      </div>`;
+    ctaContainer.style.display = 'block';
+  }
+}
+
+// ─────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────
+function summaryPill(srcName, srcTier, dstName, dstTier) {
+  const srcIcon = srcName === 'Gemini' ? '✦' : '🤖';
+  return `<div class="summary-pill">
+    ${srcIcon} ${srcName} <span style="color:var(--text-muted)">${srcTier}</span>
+    <span class="arrow">→</span>
+    ◉ ${dstName} <span style="color:var(--text-muted)">${dstTier}</span>
+  </div>`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function fmtNum(n) {
+  if (!n) return '—';
+  return n.toLocaleString();
+}
+
+function copyPrompt(elementId, btn, text) {
+  const content = text || document.getElementById(elementId)?.textContent;
+  if (!content) return;
+  navigator.clipboard.writeText(content).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = content;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+</script>
+</body>
+</html>
