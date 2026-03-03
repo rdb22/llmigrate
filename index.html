@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMigrate — AI context migration for power users</title>
+<meta name="description" content="Free browser-based tool for large ChatGPT export files, Gemini migrations, and local LLM setup. Goes further than Anthropic's built-in import tool. 100% private.">
+<meta property="og:title" content="LLMigrate — Move your AI context, not just your chats">
+<meta property="og:description" content="A free tool to migrate your assistant context between AI platforms. Works entirely in your browser. No data ever leaves your device.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://llmigrate.com">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="LLMigrate — Migrate your AI assistant context">
+<meta name="twitter:description" content="Free, private, browser-based context migration for ChatGPT, Gemini, Claude, and local LLMs.">
+<style>
+  :root {
+    --bg: #0d0f12;
+    --surface: #13161b;
+    --surface2: #1b1f26;
+    --border: #252a33;
+    --text: #e8eaed;
+    --text-secondary: #7a8394;
+    --text-muted: #4a5568;
+    --accent: #3d8bff;
+    --accent-dim: rgba(61,139,255,0.12);
+    --success: #34c77b;
+    --success-dim: rgba(52,199,123,0.12);
+    --warning: #f5a623;
+    --sans: 'Inter', 'Inter Display', -apple-system, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'Menlo', 'Cascadia Code', 'Consolas', 'Liberation Mono', monospace;
+    --radius: 8px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Layout ── */
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ── Nav ── */
+  nav {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 0;
+  }
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-logo {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .nav-logo span { color: var(--accent); }
+  .nav-cta {
+    background: var(--accent);
+    color: white;
+    padding: 8px 18px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .nav-cta:hover { opacity: 0.9; text-decoration: none; }
+
+  /* ── Hero ── */
+  .hero {
+    padding: 80px 0 64px;
+    text-align: center;
+  }
+  .hero-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 5vw, 46px);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    margin-bottom: 20px;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .hero h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .hero-sub {
+    font-size: 17px;
+    color: var(--text-secondary);
+    max-width: 520px;
+    margin: 0 auto 36px;
+    line-height: 1.6;
+  }
+  .hero-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .btn-hero {
+    background: var(--accent);
+    color: white;
+    padding: 14px 28px;
+    border-radius: var(--radius);
+    font-size: 15px;
+    font-weight: 600;
+    transition: opacity 150ms;
+  }
+  .btn-hero:hover { opacity: 0.9; text-decoration: none; }
+  .btn-hero-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    padding: 14px 28px;
+    border-radius: var(--radius);
+    font-size: 15px;
+    font-weight: 500;
+    transition: border-color 150ms, color 150ms;
+  }
+  .btn-hero-ghost:hover { border-color: #333b47; color: var(--text); text-decoration: none; }
+
+  /* ── Privacy badge ── */
+  .privacy-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+    font-size: 12.5px;
+    color: var(--success);
+  }
+  .privacy-strip svg { flex-shrink: 0; }
+
+  /* ── Platform flow diagram ── */
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 48px 0 0;
+    flex-wrap: wrap;
+    row-gap: 16px;
+  }
+  .flow-platform {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .flow-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+    border: 1.5px solid var(--border);
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+  .flow-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .flow-arrow {
+    width: 40px;
+    height: 1px;
+    background: var(--border);
+    position: relative;
+    margin: 0 4px;
+    margin-bottom: 24px;
+    flex-shrink: 0;
+  }
+  .flow-arrow::after {
+    content: '›';
+    position: absolute;
+    right: -6px;
+    top: -9px;
+    color: var(--text-muted);
+    font-size: 16px;
+  }
+
+  /* ── Feature grid ── */
+  .section {
+    padding: 72px 0;
+    border-top: 1px solid var(--border);
+  }
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: clamp(20px, 3vw, 28px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+  .section-sub {
+    font-size: 15px;
+    color: var(--text-secondary);
+    max-width: 560px;
+    margin-bottom: 40px;
+  }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .feature-icon {
+    font-size: 24px;
+    margin-bottom: 12px;
+    display: block;
+  }
+  .feature-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .feature-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  /* ── How it works ── */
+  .steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 640px;
+  }
+  .step-item {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .step-num-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-text { flex: 1; }
+  .step-text strong { color: var(--text); font-weight: 600; display: block; margin-bottom: 2px; }
+  .step-text span { font-size: 13px; color: var(--text-secondary); }
+
+  /* ── Trust section ── */
+  .trust-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .trust-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .trust-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .trust-text strong { font-size: 13px; font-weight: 600; display: block; margin-bottom: 3px; }
+  .trust-text span { font-size: 12.5px; color: var(--text-secondary); }
+
+  /* ── Affiliate CTA section ── */
+  .cta-section {
+    padding: 72px 0;
+    border-top: 1px solid var(--border);
+  }
+  .affiliate-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 32px;
+  }
+  .affiliate-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .affiliate-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .affiliate-platform-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .affiliate-card h3 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .affiliate-card p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    flex: 1;
+  }
+  .affiliate-card .affiliate-tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: -4px;
+  }
+  .btn-affiliate {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 600;
+    transition: opacity 150ms;
+    text-align: center;
+  }
+  .btn-affiliate:hover { opacity: 0.85; text-decoration: none; }
+  .btn-affiliate-blue { background: var(--accent); color: white; }
+  .btn-affiliate-green { background: #1a7a4a; color: #34c77b; border: 1px solid #2a9e63; }
+  .btn-affiliate-purple { background: #2d1f5e; color: #a78bfa; border: 1px solid #4c35a0; }
+  .btn-affiliate-orange { background: #3d2200; color: var(--warning); border: 1px solid #6b3c00; }
+
+  /* ── FAQ ── */
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 680px;
+  }
+  .faq-item {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 0;
+  }
+  .faq-item:first-child { border-top: 1px solid var(--border); }
+  .faq-q {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .faq-a {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  /* ── Footer ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 28px 0;
+  }
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .footer-logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .footer-logo span { color: var(--accent); }
+  .footer-note {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .footer-links {
+    display: flex;
+    gap: 16px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .footer-links a { color: var(--text-muted); }
+  .footer-links a:hover { color: var(--text-secondary); }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .hero { padding: 48px 0 40px; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .trust-grid { grid-template-columns: 1fr; }
+    .affiliate-grid { grid-template-columns: 1fr; }
+    .footer-inner { flex-direction: column; align-items: flex-start; }
+    .flow-arrow { width: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="container">
+    <div class="nav-inner">
+      <div class="nav-logo">ll<span>migrate</span>.com</div>
+      <a href="/tool/" class="nav-cta">Launch tool →</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-label">Free · Private · Goes further than the built-in tool</div>
+    <h1>When the built-in<br>import tool <em>isn't enough</em></h1>
+    <p class="hero-sub">Anthropic's built-in import covers simple memory transfers. LLMigrate handles the harder cases: large export files, Gemini migrations, and local LLM setup.</p>
+    <div class="hero-actions">
+      <a href="/tool/" class="btn-hero">Launch free tool →</a>
+      <a href="#how-it-works" class="btn-hero-ghost">How it works</a>
+    </div>
+    <div class="privacy-strip">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <path d="M8 1L2 3.5v4C2 10.9 4.6 13.9 8 15c3.4-1.1 6-4.1 6-7.5v-4L8 1z" stroke="currentColor" stroke-width="1.3"/>
+        <path d="M5.5 8l2 2 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      100% local — no uploads, no servers, no accounts
+    </div>
+
+    <!-- Platform flow -->
+    <div class="flow">
+      <div class="flow-platform">
+        <div class="flow-icon">🤖</div>
+        <div class="flow-label">ChatGPT</div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-platform">
+        <div class="flow-icon" style="background:var(--accent-dim);border-color:var(--accent);">⇄</div>
+        <div class="flow-label" style="color:var(--accent);">LLMigrate</div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-platform">
+        <div class="flow-icon">◉</div>
+        <div class="flow-label">Claude</div>
+      </div>
+      <div style="width:100%;display:none;" class="flow-break"></div>
+      <div class="flow-platform" style="margin-left:20px;">
+        <div class="flow-icon">✦</div>
+        <div class="flow-label">Gemini</div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-platform">
+        <div class="flow-icon" style="background:var(--accent-dim);border-color:var(--accent);">⇄</div>
+        <div class="flow-label" style="color:var(--accent);">LLMigrate</div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-platform">
+        <div class="flow-icon">⚙</div>
+        <div class="flow-label">Local LLM</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">What it does</div>
+    <h2 class="section-title">The cases the built-in tool doesn't cover</h2>
+    <p class="section-sub">Claude's native import works well for simple memory transfers. LLMigrate handles large exports, non-Claude destinations, and deeper context extraction.</p>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <span class="feature-icon">📂</span>
+        <div class="feature-title">Large export file splitting</div>
+        <p class="feature-desc">ChatGPT exports from heavy users can run to hundreds of megabytes. LLMigrate streams and splits them into chunks that fit Claude's upload limits — no memory crash, no manual work.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">⚙</span>
+        <div class="feature-title">Local LLM destination</div>
+        <p class="feature-desc">Anthropic's tool imports to Claude only. LLMigrate generates a ready-to-use Modelfile or system prompt for Ollama and LM Studio. Your context, running on your hardware.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">✦</span>
+        <div class="feature-title">Gemini full context migration</div>
+        <p class="feature-desc">Google Takeout doesn't export full conversation text. LLMigrate generates a structured extraction prompt that pulls what Gemini actually knows about you — memory, Gems, and usage patterns.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🧠</span>
+        <div class="feature-title">Deeper extraction prompt</div>
+        <p class="feature-desc">Anthropic's import prompt extracts stored memory entries. LLMigrate's prompt also captures inferred patterns, communication preferences, technical context, and active projects — things not explicitly stored as memories.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📊</span>
+        <div class="feature-title">Usage profile analysis</div>
+        <p class="feature-desc">Analyses your export to flag whether your session length and patterns are likely to hit Claude's context limits — with specific mitigation strategies for heavy Codex or coding users.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🔒</span>
+        <div class="feature-title">Fully private, fully auditable</div>
+        <p class="feature-desc">Everything runs in your browser. No files leave your device. The tool is a single HTML file — view source and read every line. No accounts, no backend, no analytics.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="section" id="how-it-works">
+  <div class="container">
+    <div class="section-label">Process</div>
+    <h2 class="section-title">Six steps. About 20 minutes.</h2>
+    <p class="section-sub">If you're migrating a simple ChatGPT memory to Claude, use <a href="https://claude.com/import-memory" target="_blank" rel="noopener">Anthropic's built-in tool</a> — it's faster. LLMigrate is for the cases that need more.</p>
+
+    <div class="steps-list">
+      <div class="step-item">
+        <div class="step-num-badge">1</div>
+        <div class="step-text">
+          <strong>Select platforms and focus</strong>
+          <span>Choose your source (ChatGPT or Gemini), destination (Claude or local LLM), and whether to emphasise professional or personal context.</span>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num-badge">2</div>
+        <div class="step-text">
+          <strong>Request your data export</strong>
+          <span>For ChatGPT: trigger an export now — it can take up to 24 hours. The tool tells you exactly where to click. You can continue while you wait.</span>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num-badge">3</div>
+        <div class="step-text">
+          <strong>Extract your context</strong>
+          <span>Copy a generated extraction prompt and paste it into your source AI. It produces a structured summary of your preferences, projects, and expertise.</span>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num-badge">4</div>
+        <div class="step-text">
+          <strong>Prepare your files</strong>
+          <span>Optionally upload your raw export files. The tool splits oversized JSON exports into chunks that fit your destination's upload limits.</span>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num-badge">5</div>
+        <div class="step-text">
+          <strong>Import into your new AI</strong>
+          <span>Detailed instructions for every import mechanism — User Preferences, Memory, Projects knowledge base, or a local Modelfile.</span>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num-badge">6</div>
+        <div class="step-text">
+          <strong>Verify</strong>
+          <span>A set of suggested verification prompts to confirm your new AI has absorbed your context correctly.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Trust -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">Privacy</div>
+    <h2 class="section-title">No backend. No compromise.</h2>
+    <p class="section-sub">AI context contains some of the most sensitive professional information you have. LLMigrate is built around a simple constraint: it never touches a server.</p>
+
+    <div class="trust-grid">
+      <div class="trust-item">
+        <div class="trust-icon">🛡</div>
+        <div class="trust-text">
+          <strong>Zero network requests inside the tool</strong>
+          <span>The tool page loads once and runs entirely offline. File processing uses the browser's native FileReader and Blob APIs. Nothing is transmitted.</span>
+        </div>
+      </div>
+      <div class="trust-item">
+        <div class="trust-icon">🔍</div>
+        <div class="trust-text">
+          <strong>Auditable by design</strong>
+          <span>The tool is a single HTML file. View source and you can read every line of logic. No minified bundles, no external dependencies, no obfuscation.</span>
+        </div>
+      </div>
+      <div class="trust-item">
+        <div class="trust-icon">📵</div>
+        <div class="trust-text">
+          <strong>No accounts required</strong>
+          <span>No sign-up, no email, no login. Open the tool, use it, close the tab. No state is retained between sessions.</span>
+        </div>
+      </div>
+      <div class="trust-item">
+        <div class="trust-icon">🇬🇧</div>
+        <div class="trust-text">
+          <strong>UK-GDPR compatible by architecture</strong>
+          <span>Because no personal data ever reaches a server, there is no data controller relationship to manage. The privacy guarantee is structural, not contractual.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Affiliate CTA section -->
+<section class="cta-section">
+  <div class="container">
+    <div class="section-label">Ready to switch?</div>
+    <h2 class="section-title">Get the most out of your new platform</h2>
+    <p class="section-sub">Claude Pro and Local LLM are LLMigrate's primary destinations. Pro unlocks the memory and Projects features that make context migration stick. Local LLM gives you full control.</p>
+
+    <div class="affiliate-grid">
+      <div class="affiliate-card">
+        <div class="affiliate-card-header">
+          <div class="affiliate-platform-icon" style="background:#d972441a;">◉</div>
+          <div>
+            <h3>Claude Pro</h3>
+            <div class="affiliate-tag">Affiliate link · Commission earned</div>
+          </div>
+        </div>
+        <p>Unlocks persistent Memory, unlimited Projects file storage, and Opus 4.6 access. The Pro tier is the recommended destination for most LLMigrate users — it supports every import mechanism the tool generates.</p>
+        <a href="CLAUDE_AFFILIATE_URL" class="btn-affiliate btn-affiliate-blue" target="_blank" rel="noopener">Try Claude Pro →</a>
+      </div>
+
+      <div class="affiliate-card">
+        <div class="affiliate-card-header">
+          <div class="affiliate-platform-icon" style="background:#10a37f1a;">🤖</div>
+          <div>
+            <h3>ChatGPT Plus</h3>
+            <div class="affiliate-tag">Affiliate link · Commission earned</div>
+          </div>
+        </div>
+        <p>If you're migrating from Gemini and considering ChatGPT as a destination, Plus gives you GPT-5.2 full access, persistent Memory, and Projects. ChatGPT-as-destination is coming soon to LLMigrate.</p>
+        <a href="CHATGPT_AFFILIATE_URL" class="btn-affiliate btn-affiliate-green" target="_blank" rel="noopener">Try ChatGPT Plus →</a>
+      </div>
+
+      <div class="affiliate-card">
+        <div class="affiliate-card-header">
+          <div class="affiliate-platform-icon" style="background:#6366f11a;">⚙</div>
+          <div>
+            <h3>Mac Mini M4</h3>
+            <div class="affiliate-tag">Affiliate link · Commission earned</div>
+          </div>
+        </div>
+        <p>Running Ollama locally? The Mac Mini M4 handles 7B–13B models well without a discrete GPU, and the M4 Pro variant runs 32B models comfortably. The most cost-efficient local LLM hardware available.</p>
+        <a href="APPLE_AFFILIATE_URL" class="btn-affiliate btn-affiliate-purple" target="_blank" rel="noopener">View Mac Mini M4 →</a>
+      </div>
+
+      <div class="affiliate-card">
+        <div class="affiliate-card-header">
+          <div class="affiliate-platform-icon" style="background:#3d220010;">🖥</div>
+          <div>
+            <h3>Hetzner Cloud VPS</h3>
+            <div class="affiliate-tag">Affiliate link · Commission earned</div>
+          </div>
+        </div>
+        <p>Want to run Ollama on a server rather than your local machine? Hetzner's GPU-enabled VPS instances are among the cheapest in Europe for running mid-size models 24/7.</p>
+        <a href="HETZNER_AFFILIATE_URL" class="btn-affiliate btn-affiliate-orange" target="_blank" rel="noopener">View Hetzner plans →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section">
+  <div class="container">
+    <div class="section-label">FAQ</div>
+    <h2 class="section-title">Common questions</h2>
+
+    <div class="faq-list">
+      <div class="faq-item">
+        <div class="faq-q">Doesn't Claude already have a built-in import tool?</div>
+        <div class="faq-a">Yes — Anthropic launched claude.com/import-memory in March 2026. It's a two-step copy-paste that works well for straightforward memory transfers from ChatGPT or Gemini to Claude Pro. If that's all you need, use it. LLMigrate is for the cases it doesn't cover: large export files that need splitting, migrations to local LLMs, deeper context extraction beyond stored memory entries, and usage pattern analysis for heavy users.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Why doesn't the simple import prompt work well for large ChatGPT accounts?</div>
+        <div class="faq-a">OpenAI appears to partially limit how much context the export prompt can retrieve, particularly for accounts with years of history. The more reliable route for heavy users is the full data export (Settings → Data controls → Export data), which produces the complete conversations.json file. LLMigrate handles that file regardless of size.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">What does "context" mean — is it my chat history?</div>
+        <div class="faq-a">No. Raw chat history is rarely what you need to carry across. Context is the accumulated knowledge your AI has about you: your role, communication style, ongoing projects, technical preferences, and behavioural instructions. LLMigrate extracts this as a structured summary, not a log dump.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Does it work if I have years of ChatGPT history?</div>
+        <div class="faq-a">Yes. Large accounts often receive multiple conversations.json files from ChatGPT exports. LLMigrate streams them in 4 MB slices — the full file is never loaded into memory simultaneously — and splits the output into chunks that fit within Claude's upload limits.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Does Gemini export work the same way?</div>
+        <div class="faq-a">No. Google Takeout for Gemini exports activity metadata rather than full conversation text. For Gemini migrations, the context summary generated in Step 3 is the primary artefact. LLMigrate's extraction prompt specifically instructs Gemini to check its Memory bank and Gems instructions, which the generic Anthropic prompt does not.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Can I use this with a local LLM?</div>
+        <div class="faq-a">Yes — and this is the one use case Anthropic's tool doesn't touch at all. LLMigrate supports Ollama and LM Studio as destinations. For Ollama it generates a complete Modelfile with your context in the SYSTEM block. For LM Studio it generates a ready-to-paste system prompt.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Is this actually private? How can I verify it?</div>
+        <div class="faq-a">The tool page is a single HTML file with no external scripts, fonts, or API calls. Open your browser's developer tools (F12 → Network tab), load the tool, and you'll see zero network requests during use. You can also view the full source — there are no minified bundles, no obfuscation.</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Is the tool free?</div>
+        <div class="faq-a">Yes, entirely free. LLMigrate earns a small commission if you sign up for a paid platform through one of the links on this page. The commission doesn't affect the price you pay.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-logo">ll<span>migrate</span>.com</div>
+      <div class="footer-note">Platform specs verified March 2026. Affiliate links clearly labelled throughout.</div>
+      <div class="footer-links">
+        <a href="/tool/">Tool</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="/cdn-cgi/l/email-protection#731b161f1f1c331f1f1e1a14011207165d101c1e">Contact</a>
+      </div>
+    <
