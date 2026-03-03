@@ -1501,31 +1501,40 @@ async function streamParseAllFiles(files, maxBytes, mergedLabel) {
 
 async function streamParseFile(file, onItem, onFlag) {
   // Reads the file in STREAM_SLICE slices. A character-level state machine tracks
-  // JSON nesting depth and string state to identify complete top-level objects,
-  // extracting each one without holding the full file text in memory.
-  const decoder   = new TextDecoder('utf-8');
-  let   remainder = '';   // leftover text carried from previous slice
-  let   depth     = 0;    // current nesting depth inside the root array
-  let   inString  = false;
-  let   escape    = false;
-  let   itemStart = -1;   // index in `full` where current item began
-  let   preamble  = true; // still scanning for the opening of the item array
+  // JSON nesting depth and string state to identify complete top-level objects.
+  //
+  // Slice boundary handling: all parse state (depth, inString, escape) is preserved
+  // across slice boundaries and continues from exactly where it left off.
+  // When a partial item is carried forward as `remainder`, itemStart is reset to 0
+  // (it now starts at the beginning of remainder) and scanning resumes from
+  // remainder.length into the next concatenated string — not from 0 — so characters
+  // already parsed in the partial item are never re-scanned.
+  const decoder  = new TextDecoder('utf-8');
+  let remainder  = '';
+  let depth      = 0;
+  let inString   = false;
+  let escape     = false;
+  let itemStart  = -1;  // index into current `full` string, or -1 if not in an item
+  let preamble   = true;
 
   let offset = 0;
   while (offset < file.size) {
     const sliceBytes = await file.slice(offset, offset + STREAM_SLICE).arrayBuffer();
-    const text = decoder.decode(new Uint8Array(sliceBytes), { stream: true });
-    let   full = remainder + text;
-    let   pos  = 0;
+    const newText    = decoder.decode(new Uint8Array(sliceBytes), { stream: true });
+    const full       = remainder + newText;
+
+    // Where to start scanning: if carrying a partial item, remainder is already
+    // parsed — only scan the new text appended after it.
+    let pos = (itemStart !== -1) ? remainder.length : 0;
 
     if (preamble) {
+      pos = 0;
       const trimmed = full.trimStart();
       if (trimmed.startsWith('[')) {
         pos = full.indexOf('[') + 1;
         preamble = false;
         depth = 0;
       } else if (trimmed.startsWith('{')) {
-        // Root object — find the first `:[ ` to locate the array value
         const arrIdx = full.indexOf(':[');
         if (arrIdx !== -1) {
           if (full.slice(0, arrIdx).includes('emini')) onFlag('gemini');
@@ -1533,7 +1542,6 @@ async function streamParseFile(file, onItem, onFlag) {
           preamble = false;
           depth = 0;
         } else {
-          // Haven't seen array open yet — carry everything forward
           remainder = full;
           offset += STREAM_SLICE;
           continue;
@@ -1547,10 +1555,10 @@ async function streamParseFile(file, onItem, onFlag) {
 
     for (let i = pos; i < full.length; i++) {
       const ch = full[i];
-      if (escape)    { escape = false; continue; }
-      if (inString)  {
+      if (escape)   { escape = false; continue; }
+      if (inString) {
         if (ch === '\\') { escape = true; continue; }
-        if (ch === '"')    { inString = false; }
+        if (ch === '"')   { inString = false; }
         continue;
       }
       if (ch === '"') { inString = true; continue; }
@@ -1566,11 +1574,18 @@ async function streamParseFile(file, onItem, onFlag) {
           try { JSON.parse(itemStr); onItem(itemStr); } catch (_) {}
           itemStart = -1;
         }
-        if (depth < 0) { remainder = ''; return; } // end of root array
+        if (depth < 0) { remainder = ''; return; }
       }
     }
 
-    remainder = itemStart !== -1 ? full.slice(itemStart) : '';
+    // Carry forward partial item. State variables reflect end of `full` — correct
+    // for next iteration. Reset itemStart to 0: it now starts at remainder[0].
+    if (itemStart !== -1) {
+      remainder = full.slice(itemStart);
+      itemStart = 0;
+    } else {
+      remainder = '';
+    }
     offset += STREAM_SLICE;
   }
 }
