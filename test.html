@@ -482,10 +482,10 @@ const SUITES = [
       assert(escaped.includes('&gt;'), 'Expected &gt; in escaped output');
     }},
     { name: 'XSS via filename — script tag neutralised', async run() {
-      // Split </script> so the HTML parser doesn't close the script block prematurely
+      // Split <\/script> so the HTML parser doesn't close the script block prematurely
       const malicious = '"><scr' + 'ipt>alert(1)</scr' + 'ipt>.json';
       const escaped = escHtml(malicious);
-      assert(!escaped.includes('<script>'), `Script tag not escaped: ${escaped}`);
+      assert(!escaped.includes('<scr'+'ipt>'), `Script tag not escaped: ${escaped}`);
       assert(!escaped.includes('"'), `Unescaped quote found: ${escaped}`);
     }},
     { name: 'XSS via string content in parsed item — content is data not code', async run() {
