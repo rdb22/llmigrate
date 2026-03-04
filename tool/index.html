@@ -1408,7 +1408,8 @@ function handleFiles(fileList) {
 // Handles a top-level JSON array (or object wrapping an array) without loading
 // the entire file. Reads in STREAM_SLICE byte slices via File.slice().
 // ─────────────────────────────────────────────────────────────────────────────
-const STREAM_SLICE = 4 * 1024 * 1024; // 4 MB read slices
+const STREAM_SLICE   = 4 * 1024 * 1024;  // 4 MB read slices
+const MAX_ITEM_BYTES = 50 * 1024 * 1024; // 50 MB cap per single item — protects against malformed/malicious exports
 
 async function streamParseAllFiles(files, maxBytes, mergedLabel) {
   const profile = { convCount: 0, totalChars: 0, maxChars: 0, longCount: 0, veryLongCount: 0 };
@@ -1535,10 +1536,13 @@ async function streamParseFile(file, onItem, onFlag) {
         preamble = false;
         depth = 0;
       } else if (trimmed.startsWith('{')) {
-        const arrIdx = full.indexOf(':[');
-        if (arrIdx !== -1) {
-          if (full.slice(0, arrIdx).includes('emini')) onFlag('gemini');
-          pos = arrIdx + 2;
+        // Use a regex to find the first array value in the wrapper object.
+        // Handles ":["  ": ["  ":\n["  and any whitespace variant Google might use.
+        const arrMatch = full.match(/:\s*\[/);
+        if (arrMatch) {
+          const arrIdx = arrMatch.index;
+          if (full.slice(0, arrIdx).toLowerCase().includes('emini')) onFlag('gemini');
+          pos = arrIdx + arrMatch[0].length; // skip past ": [" however many chars it is
           preamble = false;
           depth = 0;
         } else {
@@ -1581,8 +1585,15 @@ async function streamParseFile(file, onItem, onFlag) {
     // Carry forward partial item. State variables reflect end of `full` — correct
     // for next iteration. Reset itemStart to 0: it now starts at remainder[0].
     if (itemStart !== -1) {
-      remainder = full.slice(itemStart);
-      itemStart = 0;
+      const partial = full.slice(itemStart);
+      if (partial.length > MAX_ITEM_BYTES) {
+        // Item has grown beyond the cap — almost certainly malformed or malicious data.
+        // Abandon it, reset state, and continue scanning from here.
+        remainder = ''; itemStart = -1; depth = 0; inString = false; escape = false;
+      } else {
+        remainder = partial;
+        itemStart = 0;
+      }
     } else {
       remainder = '';
     }
@@ -1697,8 +1708,10 @@ function handleFile(file) {
 }
 function offerRename(originalName, content) {
   const newName = originalName.replace(/\.json$/i, '') + '_context.txt';
+  revokeChunks(); // free any previous Blob URLs
   const blob = new Blob([content], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
+  state.renameUrl = url; // store so revokeChunks() can clean it up later
   const el = document.getElementById('chunkContainer');
   el.innerHTML = `
     <div class="chunk-list">
@@ -1741,6 +1754,7 @@ function splitJsonItems(items, baseName, maxBytes) {
 
   setStatus('success', `Split into ${chunks.length} files across ${items.length} conversations. Each file is within the upload limit.`);
 
+  revokeChunks(); // free any previously created Blob URLs before making new ones
   const urls = chunks.map((chunk, i) => {
     const txt = JSON.stringify(chunk, null, 2);
     const blob = new Blob([txt], { type: 'text/plain' });
@@ -1781,7 +1795,17 @@ function downloadAll() {
   });
 }
 
+function revokeChunks() {
+  // Revoke all outstanding Blob URLs to free browser memory.
+  // Called before creating new chunks and when the file is cleared.
+  if (Array.isArray(state.chunks)) {
+    state.chunks.forEach(c => { if (c && c.url) URL.revokeObjectURL(c.url); });
+  }
+  if (state.renameUrl) { URL.revokeObjectURL(state.renameUrl); state.renameUrl = null; }
+}
+
 function clearFile() {
+  revokeChunks();
   state.chunks = [];
   document.getElementById('fileInfoContainer').innerHTML = '';
   document.getElementById('processingStatus').innerHTML = '';
@@ -1997,55 +2021,45 @@ function renderStep6() {
   if (state.dest === 'claude') {
     const isFreeTier = state.destTier === 'free';
     ctaGrid.innerHTML = `
-      ${isFreeTier ? `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;grid-column:1/-1;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Upgrade to Claude Pro to use everything you just set up</div>
-        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">You're on the Free tier. Persistent Memory and full Projects file storage — the two mechanisms LLMigrate just configured — require a Pro subscription.</div>
-        <a href="CLAUDE_AFFILIATE_URL" target="_blank" rel="noopener"
-           style="display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:white;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
-          Try Claude Pro — $20/month →
-        </a>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — we earn a small commission at no cost to you.</div>
-      </div>` : `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Running Ollama locally?</div>
-        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">The Mac Mini M4 handles 7B–13B models without a discrete GPU. The M4 Pro runs 32B models comfortably.</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Also running local models?</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">Mac Mini M4 handles 7B–13B models without a GPU. M4 Pro runs 32B comfortably. The practical choice for Ollama on Apple silicon.</div>
         <a href="APPLE_AFFILIATE_URL" target="_blank" rel="noopener"
            style="display:inline-block;background:#2d1f5e;color:#a78bfa;border:1px solid #4c35a0;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
           View Mac Mini M4 →
         </a>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — commission earned.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Apple affiliate link — commission earned at no cost to you.</div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
         <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Share LLMigrate</div>
-        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">If this saved you time, sharing it is the best way to support it.</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">If this saved you time, the best way to support it is to tell someone else who's switching.</div>
         <a href="https://twitter.com/intent/tweet?text=Just%20migrated%20my%20AI%20assistant%20context%20using%20LLMigrate%20%E2%80%94%20free%2C%20private%2C%20runs%20entirely%20in%20the%20browser.%20llmigrate.com" target="_blank" rel="noopener"
            style="display:inline-block;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
           Share on X/Twitter →
         </a>
-      </div>`}`;
+      </div>`;
     ctaContainer.style.display = 'block';
 
   } else if (state.dest === 'localllm') {
     ctaGrid.style.gridTemplateColumns = '1fr 1fr';
     ctaGrid.innerHTML = `
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Mac Mini M4 for local models</div>
-        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">Silent, efficient, and handles 7B–32B models depending on the variant. The default choice for most Ollama users.</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Mac Mini M4</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">Silent, efficient, handles 7B–32B models depending on variant. The default recommendation for Ollama on Apple silicon.</div>
         <a href="APPLE_AFFILIATE_URL" target="_blank" rel="noopener"
            style="display:inline-block;background:#2d1f5e;color:#a78bfa;border:1px solid #4c35a0;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
           View Mac Mini M4 →
         </a>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — commission earned.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Apple affiliate link — commission earned at no cost to you.</div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Hetzner GPU VPS</div>
-        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">Run Ollama on a server rather than locally. Hetzner's GPU instances are among the cheapest in Europe for 24/7 model hosting.</div>
-        <a href="HETZNER_AFFILIATE_URL" target="_blank" rel="noopener"
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Mini PC (Windows/Linux)</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">32 GB RAM + 1 TB NVMe is the practical minimum for 13B models on non-Apple hardware. Good alternative if you prefer Windows or Linux.</div>
+        <a href="https://amzn.to/47rm0wa" target="_blank" rel="noopener"
            style="display:inline-block;background:#3d2200;color:var(--warning);border:1px solid #6b3c00;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;text-decoration:none;">
-          View Hetzner plans →
+          View on Amazon →
         </a>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Affiliate link — commission earned.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Amazon affiliate link — commission earned at no cost to you.</div>
       </div>`;
     ctaContainer.style.display = 'block';
   }
