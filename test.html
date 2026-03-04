@@ -491,7 +491,7 @@ const SUITES = [
     { name: 'XSS via string content in parsed item — content is data not code', async run() {
       // Parser extracts the raw JSON string — it never executes or injects content.
       // This test verifies the extracted item contains the XSS string as inert data.
-      const xssPayload = '<script>alert("xss")</script>';
+      const xssPayload = '<scr' + 'ipt>alert("xss")</scr' + 'ipt>';
       const { items } = await parseStr(JSON.stringify([{ id: 1, content: xssPayload }]));
       assert(items.length === 1, 'Item not extracted');
       assert(items[0].content === xssPayload, 'Content changed');
